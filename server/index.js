@@ -2,6 +2,8 @@ const path = require('path');
 const dotenv = require('dotenv');
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const http = require('http');
 
 // Load environment variables before importing route/agent modules.
@@ -19,7 +21,13 @@ const app = express();
 const PORT = 5000;
 const server = http.createServer(app);
 
-app.use(cors());
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:5000',
+];
+app.use(cors({ origin: ALLOWED_ORIGINS }));
+app.use(helmet());
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 app.use(express.json());
 app.use('/api', healthRoutes);
 app.use('/api', cookingRoutes);
