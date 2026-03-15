@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { useCookingSession } from '../hooks/useCookingSession.js';
 import { useCookingCamera } from '../hooks/useCookingCamera.js';
@@ -33,8 +33,6 @@ const CookingPage = () => {
   const { state } = useLocation();
   const navigate = useNavigate();
   const recipe = state?.recipe;
-  const initRef = useRef(false);
-
   const {
     session,
     loading,
@@ -67,23 +65,29 @@ const CookingPage = () => {
   } = useRamseyBot();
 
   useEffect(() => {
-    if (!recipe || initRef.current) return;
-    initRef.current = true;
+    if (!recipe) return;
+
+    let cancelled = false;
 
     const init = async () => {
       const created = await createSession(recipe);
-      if (created) {
-        const started = await startCooking(created.sessionId);
-        await startCamera();
-        // Auto-start RamseyBot after cooking session and camera are ready
-        if (started) {
-          startVoiceSession(created.sessionId, videoRef);
-        }
+      if (cancelled || !created) return;
+
+      const started = await startCooking(created.sessionId);
+      if (cancelled) return;
+
+      await startCamera();
+      if (cancelled) return;
+
+      // Auto-start RamseyBot after cooking session and camera are ready
+      if (started) {
+        startVoiceSession(created.sessionId, videoRef);
       }
     };
     init();
 
     return () => {
+      cancelled = true;
       stopTracks();
       stopVoiceSession();
     };

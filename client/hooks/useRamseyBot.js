@@ -21,6 +21,7 @@ export const useRamseyBot = () => {
   const videoIntervalRef = useRef(null);
   const canvasRef = useRef(null);
   const isMutedRef = useRef(false);
+  const intentionalCloseRef = useRef(false);
 
   // Keep ref in sync with state for use inside worklet callback
   useEffect(() => {
@@ -60,6 +61,7 @@ export const useRamseyBot = () => {
     }
 
     if (socketRef.current) {
+      intentionalCloseRef.current = true;
       socketRef.current.close();
       socketRef.current = null;
     }
@@ -158,6 +160,7 @@ export const useRamseyBot = () => {
   const startVoiceSession = useCallback(
     async (cookingSessionId, videoRef) => {
       setError('');
+      intentionalCloseRef.current = false;
 
       try {
         // Set up audio playback first
@@ -213,7 +216,9 @@ export const useRamseyBot = () => {
         };
 
         socket.onerror = () => {
-          setError('WebSocket connection error');
+          if (!intentionalCloseRef.current) {
+            setError('WebSocket connection error');
+          }
         };
 
         socket.onclose = () => {

@@ -22,7 +22,7 @@ const PORT = 5000;
 const server = http.createServer(app);
 
 const ALLOWED_ORIGINS = [
-  'http://localhost:5173',
+  'http://localhost:3000',
   'http://localhost:5000',
 ];
 app.use(cors({ origin: ALLOWED_ORIGINS }));
@@ -32,8 +32,25 @@ app.use(express.json());
 app.use('/api', healthRoutes);
 app.use('/api', cookingRoutes);
 
-setupScanWebSocketServer(server);
-setupCookingLiveServer(server);
+// Use noServer mode for WebSocket servers to avoid upgrade conflicts
+const scanWss = setupScanWebSocketServer();
+const cookingWss = setupCookingLiveServer();
+
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = new URL(req.url, `http://${req.headers.host}`);
+
+  if (pathname === '/ws/scan') {
+    scanWss.handleUpgrade(req, socket, head, (ws) => {
+      scanWss.emit('connection', ws, req);
+    });
+  } else if (pathname === '/ws/cooking-live') {
+    cookingWss.handleUpgrade(req, socket, head, (ws) => {
+      cookingWss.emit('connection', ws, req);
+    });
+  } else {
+    socket.destroy();
+  }
+});
 
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);

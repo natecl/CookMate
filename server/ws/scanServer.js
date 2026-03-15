@@ -51,9 +51,9 @@ const sendJson = (socket, payload) => {
   }
 };
 
-const setupScanWebSocketServer = (server) => {
+const setupScanWebSocketServer = () => {
   const sessions = new Map();
-  const wss = new WebSocketServer({ server, path: '/ws/scan' });
+  const wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', (socket) => {
     const ownedSessionIds = new Set();

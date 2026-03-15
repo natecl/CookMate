@@ -67,8 +67,8 @@ const cleanupSession = (cookingSessionId) => {
   }
 };
 
-const setupCookingLiveServer = (server) => {
-  const wss = new WebSocketServer({ server, path: '/ws/cooking-live' });
+const setupCookingLiveServer = () => {
+  const wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', (socket) => {
     let currentCookingSessionId = null;
