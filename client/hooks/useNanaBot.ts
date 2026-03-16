@@ -44,6 +44,7 @@ export const useNanaBot = () => {
   const isPausedRef = useRef(false);
   const intentionalCloseRef = useRef(false);
   const scheduledSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const pendingInterruptionRef = useRef(false);
 
   // Keep ref in sync with state for use inside worklet callback
   useEffect(() => {
@@ -147,6 +148,9 @@ export const useNanaBot = () => {
     // Reset the play time so new audio starts immediately
     nextPlayTimeRef.current = 0;
     setIsModelSpeaking(false);
+
+    // Drop any audio chunks still in transit from the old turn
+    pendingInterruptionRef.current = true;
   }, []);
 
   const startMicCapture = useCallback(async () => {
@@ -262,6 +266,11 @@ export const useNanaBot = () => {
         socket.onmessage = (event: MessageEvent) => {
           if (event.data instanceof ArrayBuffer) {
             // Binary: raw PCM 16-bit audio from Gemini at 24kHz
+            // Drop stale audio chunks from the old turn after a step change
+            if (pendingInterruptionRef.current) {
+              return;
+            }
+
             const ctx = playbackContextRef.current;
             if (!ctx || ctx.state === 'closed') {
               console.log('[Playback] Skipping audio, ctx state:', ctx?.state);
@@ -326,6 +335,8 @@ export const useNanaBot = () => {
           } else if (msg.type === 'live:transcript') {
             setTranscript((prev) => [...prev.slice(-19), { role: msg.role, text: msg.text }]);
           } else if (msg.type === 'live:turn_complete') {
+            // The old turn has ended — allow audio from the new turn to play
+            pendingInterruptionRef.current = false;
             setIsModelSpeaking(false);
           } else if (msg.type === 'live:illustration_loading') {
             if (msg.context === 'step') {
