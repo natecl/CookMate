@@ -325,4 +325,4 @@ cookmate
 
 CookMate aims to become a true AI cooking companion that helps users cook confidently, learn new techniques, and make the most of the ingredients they already have.
 
-The goal is to transform cooking into a guided, interactive, and intelligent experience powered by AI.
+The goal is to transform cooking into a guided, interactive, and intelligent experience powered by AI and AGENTS.
