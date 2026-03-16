@@ -2,9 +2,9 @@
   "name": "cookmate-server",
   "version": "1.0.0",
   "private": true,
-  "main": "index.js",
+  "main": "index.ts",
   "scripts": {
-    "dev": "node index.js"
+    "dev": "tsx index.ts"
   },
   "dependencies": {
     "@google/adk": "^0.5.0",
@@ -13,7 +13,17 @@
     "dotenv": "^17.3.1",
     "express": "^4.21.2",
     "express-rate-limit": "^8.3.1",
+    "gif-encoder-2": "^1.0.5",
     "helmet": "^8.1.0",
+    "pngjs": "^7.0.0",
     "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.15.0",
+    "@types/ws": "^8.18.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
   }
 }
