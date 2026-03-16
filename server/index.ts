@@ -30,7 +30,7 @@ const configuredOrigins = (process.env.CLIENT_URL || '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 const ALLOWED_ORIGINS = configuredOrigins.length > 0 ? configuredOrigins : defaultOrigins;
-const vercelPreviewPattern = /^https:\/\/cook-mate-drab(?:-[a-z0-9-]+)?\.vercel\.app$/;
+const vercelPreviewPattern = /^https:\/\/cook-mate-[a-z0-9-]+\.vercel\.app$/;
 
 if (isProd && configuredOrigins.length === 0) {
   throw new Error('CLIENT_URL must be set in production.');
