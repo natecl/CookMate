@@ -1,13 +1,17 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { CookingLiveServerMessage } from '../../types/websocket';
 
-const WS_URL = 'ws://localhost:5000/ws/cooking-live';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '')
+  || 'http://localhost:5000';
+const WS_BASE_URL = (import.meta.env.VITE_WS_BASE_URL as string | undefined)?.replace(/\/$/, '')
+  || API_BASE_URL.replace(/^http/, 'ws');
+const WS_URL = `${WS_BASE_URL}/ws/cooking-live`;
 const VIDEO_INTERVAL_MS = 1000;
 const VIDEO_SIZE = 768;
 
 interface IllustrationState {
   image: string;
-  format: 'png' | 'gif';
+  format: 'png' | 'gif' | 'jpeg' | 'webp';
   alt: string;
 }
 
@@ -21,7 +25,7 @@ export const useRamseyBot = () => {
   const [isModelSpeaking, setIsModelSpeaking] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [error, setError] = useState('');
   const [stepIllustration, setStepIllustration] = useState<IllustrationState | null>(null);
@@ -33,16 +37,39 @@ export const useRamseyBot = () => {
   const captureContextRef = useRef<AudioContext | null>(null);
   const captureNodeRef = useRef<AudioWorkletNode | null>(null);
   const playbackContextRef = useRef<AudioContext | null>(null);
+  const playbackGainRef = useRef<GainNode | null>(null);
   const playbackNodeRef = useRef<AudioWorkletNode | null>(null);
   const videoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const isMutedRef = useRef(false);
+  const isPausedRef = useRef(false);
   const intentionalCloseRef = useRef(false);
 
   // Keep ref in sync with state for use inside worklet callback
   useEffect(() => {
-    isMutedRef.current = isMuted;
-  }, [isMuted]);
+    isPausedRef.current = isPaused;
+    const playbackCtx = playbackContextRef.current;
+    if (!playbackCtx) return;
+
+    if (isPaused) {
+      if (playbackCtx.state === 'running') {
+        playbackCtx.suspend().catch(() => {});
+      }
+      setIsModelSpeaking(false);
+      return;
+    }
+
+    const resumePlayback = async () => {
+      if (playbackCtx.state === 'suspended') {
+        await playbackCtx.resume().catch(() => {});
+      }
+      // If audio chunks were queued while paused, reflect speaking state immediately on resume.
+      if (nextPlayTimeRef.current > playbackCtx.currentTime + 0.05) {
+        setIsModelSpeaking(true);
+      }
+    };
+
+    void resumePlayback();
+  }, [isPaused]);
 
   // iOS/mobile: AudioContext can only be resumed inside a user gesture.
   // Re-attempt resume on every tap/click until both contexts are running.
@@ -51,7 +78,7 @@ export const useRamseyBot = () => {
       if (captureContextRef.current?.state === 'suspended') {
         captureContextRef.current.resume().catch(() => {});
       }
-      if (playbackContextRef.current?.state === 'suspended') {
+      if (!isPausedRef.current && playbackContextRef.current?.state === 'suspended') {
         playbackContextRef.current.resume().catch(() => {});
       }
     };
@@ -85,6 +112,7 @@ export const useRamseyBot = () => {
       playbackContextRef.current.close().catch(() => {});
       playbackContextRef.current = null;
     }
+    playbackGainRef.current = null;
 
     if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -100,6 +128,7 @@ export const useRamseyBot = () => {
     setIsConnected(false);
     setIsModelSpeaking(false);
     setAudioLevel(0);
+    setIsPaused(false);
   }, []);
 
   const startMicCapture = useCallback(async () => {
@@ -125,10 +154,8 @@ export const useRamseyBot = () => {
 
     captureNode.port.onmessage = (event: MessageEvent) => {
       if (event.data.type === 'audio' && socketRef.current?.readyState === 1) {
-        if (!isMutedRef.current) {
-          socketRef.current.send(event.data.buffer);
-        }
-        setAudioLevel(isMutedRef.current ? 0 : event.data.level);
+        socketRef.current.send(event.data.buffer);
+        setAudioLevel(event.data.level);
       }
     };
 
@@ -142,6 +169,11 @@ export const useRamseyBot = () => {
     const playbackCtx = new AudioContext({ sampleRate: 24000 });
     playbackContextRef.current = playbackCtx;
     await playbackCtx.resume();
+
+    const gainNode = playbackCtx.createGain();
+    gainNode.gain.value = 1;
+    gainNode.connect(playbackCtx.destination);
+    playbackGainRef.current = gainNode;
 
     // Detect if browser blocked audio autoplay
     if (playbackCtx.state === 'suspended') {
@@ -169,12 +201,12 @@ export const useRamseyBot = () => {
 
     videoIntervalRef.current = setInterval(() => {
       const video = videoRef.current;
-      if (!video || video.videoWidth === 0 || !socketRef.current?.readyState === 1) return;
+      if (!video || video.videoWidth === 0 || socketRef.current?.readyState !== 1) return;
 
       ctx!.drawImage(video, 0, 0, VIDEO_SIZE, VIDEO_SIZE);
       canvas.toBlob(
         (blob) => {
-          if (!blob || !socketRef.current?.readyState === 1) return;
+          if (!blob || socketRef.current?.readyState !== 1) return;
           const reader = new FileReader();
           reader.onloadend = () => {
             const base64 = (reader.result as string).split(',')[1];
@@ -213,7 +245,7 @@ export const useRamseyBot = () => {
           if (event.data instanceof ArrayBuffer) {
             // Binary: raw PCM 16-bit audio from Gemini at 24kHz
             const ctx = playbackContextRef.current;
-            if (!ctx || ctx.state !== 'running') {
+            if (!ctx || ctx.state === 'closed') {
               console.log('[Playback] Skipping audio, ctx state:', ctx?.state);
               return;
             }
@@ -227,7 +259,7 @@ export const useRamseyBot = () => {
 
             const source = ctx.createBufferSource();
             source.buffer = audioBuffer;
-            source.connect(ctx.destination);
+            source.connect(playbackGainRef.current ?? ctx.destination);
 
             // Schedule chunks back-to-back to avoid gaps
             const now = ctx.currentTime;
@@ -235,7 +267,9 @@ export const useRamseyBot = () => {
             source.start(startTime);
             nextPlayTimeRef.current = startTime + audioBuffer.duration;
 
-            setIsModelSpeaking(true);
+            if (!isPausedRef.current) {
+              setIsModelSpeaking(true);
+            }
             source.onended = () => {
               if (nextPlayTimeRef.current <= ctx.currentTime + 0.05) {
                 setIsModelSpeaking(false);
@@ -281,6 +315,7 @@ export const useRamseyBot = () => {
             }
           } else if (msg.type === 'live:illustration_error') {
             if (msg.context === 'step') {
+              setStepIllustration(null);
               setIllustrationLoading(false);
             }
           } else if (msg.type === 'live:error') {
@@ -313,8 +348,8 @@ export const useRamseyBot = () => {
     cleanup();
   }, [cleanup]);
 
-  const toggleMute = useCallback(() => {
-    setIsMuted((prev) => !prev);
+  const togglePause = useCallback(() => {
+    setIsPaused((prev) => !prev);
   }, []);
 
   const dismissClarifyIllustration = useCallback(() => {
@@ -327,7 +362,7 @@ export const useRamseyBot = () => {
   }, []);
 
   const unlockAudio = useCallback(() => {
-    if (playbackContextRef.current?.state === 'suspended') {
+    if (!isPausedRef.current && playbackContextRef.current?.state === 'suspended') {
       playbackContextRef.current.resume().catch(() => {});
     }
     if (captureContextRef.current?.state === 'suspended') {
@@ -344,7 +379,7 @@ export const useRamseyBot = () => {
     isModelSpeaking,
     audioLevel,
     transcript,
-    isMuted,
+    isPaused,
     audioBlocked,
     error,
     stepIllustration,
@@ -352,7 +387,7 @@ export const useRamseyBot = () => {
     illustrationLoading,
     startVoiceSession,
     stopVoiceSession,
-    toggleMute,
+    togglePause,
     unlockAudio,
     dismissClarifyIllustration,
     clearStepIllustration,

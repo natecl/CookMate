@@ -336,40 +336,76 @@ ul {
 }
 
 .cooking-bottom-bar {
-  padding: 16px 20px 24px;
+  padding: 7px 10px 10px;
   background: var(--surface);
   color: var(--text);
   border-top: 1px solid var(--border);
 }
 
+.step-main-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+
+.step-copy {
+  flex: 0 1 460px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
 .step-label {
-  margin: 0 0 4px;
-  font-size: 0.8rem;
+  margin: 0 0 3px;
+  font-size: 0.68rem;
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
 }
 
 .step-text {
-  margin: 0 0 14px;
+  margin: 0;
   font-size: 1rem;
-  line-height: 1.45;
+  line-height: 1.28;
+  width: 100%;
+  text-align: left;
 }
 
 .cooking-controls {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  column-gap: 8px;
+}
+
+.cooking-controls > :first-child {
+  justify-self: start;
+}
+
+.cooking-controls > :last-child {
+  justify-self: end;
 }
 
 .cooking-controls .secondary-button {
-  padding: 11px 18px;
+  padding: 8px 12px;
   font-weight: 600;
+  font-size: 0.9rem;
 }
 
 .cooking-controls .submit-button {
-  padding: 11px 18px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+}
+
+.voice-center-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
 /* RamseyBot Status */
@@ -411,8 +447,8 @@ ul {
   justify-content: center;
   align-items: center;
   gap: 4px;
-  height: 28px;
-  margin-bottom: 12px;
+  height: 20px;
+  margin: 0;
 }
 
 .voice-bar {
@@ -448,7 +484,8 @@ ul {
   border-radius: 999px;
   background: rgba(255, 248, 238, 0.9);
   color: var(--text);
-  padding: 11px 14px;
+  padding: 8px 12px;
+  font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 140ms ease, border-color 140ms ease;
@@ -460,8 +497,109 @@ ul {
   color: #fffdf9;
 }
 
+.instruction-illustration {
+  width: 124px;
+  min-height: 92px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.08);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.illustration-image {
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.illustration-loading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(255, 253, 249, 0.7);
+  font-size: 0.65rem;
+}
+
+.illustration-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 253, 249, 0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Clarifying Illustration Overlay */
+.clarify-overlay {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  max-width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  z-index: 10;
+  animation: fadeSlideIn 0.3s ease-out;
+  text-align: center;
+}
+
+.clarify-overlay-image {
+  width: 100%;
+  border-radius: 8px;
+}
+
+.clarify-overlay-dismiss {
+  display: block;
+  font-size: 0.65rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 680px) {
   .mode-selector {
     flex-direction: column;
+  }
+  .step-main-row {
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .step-copy {
+    flex: 0 1 54vw;
+  }
+  .instruction-illustration {
+    width: 104px;
+    min-height: 78px;
+    padding: 4px;
+  }
+  .step-text {
+    font-size: 0.92rem;
+    line-height: 1.24;
+  }
+  .clarify-overlay {
+    max-width: 140px;
+    bottom: 12px;
+    right: 12px;
   }
 }

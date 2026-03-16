@@ -13,7 +13,7 @@ export type CookingLiveServerMessage =
   | { type: 'live:transcript'; role: 'user' | 'model'; text: string }
   | { type: 'live:turn_complete' }
   | { type: 'live:illustration_loading'; context: 'step' | 'clarify' }
-  | { type: 'live:illustration'; context: 'step' | 'clarify'; image: string; format: 'png' | 'gif'; alt: string }
+  | { type: 'live:illustration'; context: 'step' | 'clarify'; image: string; format: 'png' | 'gif' | 'jpeg' | 'webp'; alt: string }
   | { type: 'live:illustration_error'; context: 'step' | 'clarify'; error: string }
   | { type: 'live:error'; error: string };
 

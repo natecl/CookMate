@@ -2,7 +2,9 @@ import { useState, useCallback } from 'react';
 import type { CookingSession, SessionEvent } from '../../types/session';
 import type { Recipe } from '../../types/recipe';
 
-const API_BASE = 'http://localhost:5000/api/cooking';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '')
+  || 'http://localhost:5000';
+const API_BASE = `${API_BASE_URL}/api/cooking`;
 
 export const useCookingSession = () => {
   const [session, setSession] = useState<CookingSession | null>(null);

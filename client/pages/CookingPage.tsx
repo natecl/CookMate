@@ -63,7 +63,7 @@ const CookingPage = () => {
     isConnected: ramseyConnected,
     isModelSpeaking,
     audioLevel,
-    isMuted,
+    isPaused,
     audioBlocked,
     error: ramseyError,
     stepIllustration,
@@ -71,7 +71,7 @@ const CookingPage = () => {
     illustrationLoading,
     startVoiceSession,
     stopVoiceSession,
-    toggleMute,
+    togglePause,
     unlockAudio,
     dismissClarifyIllustration,
     clearStepIllustration,
@@ -198,28 +198,33 @@ const CookingPage = () => {
         ))}
       </div>
 
-      {(stepIllustration || illustrationLoading) && (
-        <div className="illustration-panel">
-          {illustrationLoading && !stepIllustration ? (
-            <div className="illustration-loading">
-              <span className="illustration-spinner" />
-              <span>Generating illustration...</span>
-            </div>
-          ) : stepIllustration ? (
-            <img
-              src={`data:image/${stepIllustration.format};base64,${stepIllustration.image}`}
-              alt={stepIllustration.alt}
-              className="illustration-image"
-            />
-          ) : null}
-        </div>
-      )}
-
       <div className="cooking-bottom-bar">
         <p className="step-label">
           Step {currentIndex + 1} of {totalSteps}
         </p>
-        <p className="step-text">{currentStepText}</p>
+
+        <div className="step-main-row">
+          {(stepIllustration || illustrationLoading) && (
+            <div className="instruction-illustration">
+              {illustrationLoading && !stepIllustration ? (
+                <div className="illustration-loading">
+                  <span className="illustration-spinner" />
+                  <span>Generating illustration...</span>
+                </div>
+              ) : stepIllustration ? (
+                <img
+                  src={`data:image/${stepIllustration.format};base64,${stepIllustration.image}`}
+                  alt={stepIllustration.alt}
+                  className="illustration-image"
+                />
+              ) : null}
+            </div>
+          )}
+
+          <div className="step-copy">
+            <p className="step-text">{currentStepText}</p>
+          </div>
+        </div>
 
         {audioBlocked && (
           <button
@@ -232,8 +237,6 @@ const CookingPage = () => {
           </button>
         )}
 
-        <VoiceWave audioLevel={audioLevel} isModelSpeaking={isModelSpeaking} />
-
         <div className="cooking-controls">
           <button
             type="button"
@@ -244,14 +247,17 @@ const CookingPage = () => {
             Previous
           </button>
 
-          <button
-            type="button"
-            className={`mic-toggle-button${isMuted ? ' mic-muted' : ''}`}
-            onClick={toggleMute}
-            aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-          >
-            {isMuted ? 'Unmute' : 'Mute'}
-          </button>
+          <div className="voice-center-control">
+            <VoiceWave audioLevel={audioLevel} isModelSpeaking={isModelSpeaking} />
+            <button
+              type="button"
+              className={`mic-toggle-button${isPaused ? ' mic-muted' : ''}`}
+              onClick={togglePause}
+              aria-label={isPaused ? 'Resume' : 'Pause'}
+            >
+              {isPaused ? 'Resume' : 'Pause'}
+            </button>
+          </div>
 
           {allComplete ? (
             <button

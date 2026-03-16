@@ -16,6 +16,7 @@ import type {
 
 // Map cookingSessionId -> { geminiSession, clientSocket, currentStepIndex, recipe }
 const activeSessions = new Map<string, ActiveCookingSession>();
+const STEP_ILLUSTRATION_ERROR = 'Failed to generate illustration';
 
 /**
  * Pre-fetch the next step's illustration in the background (cache-only, no WS message).
@@ -38,6 +39,72 @@ const sendBinary = (socket: WebSocket, data: Buffer): void => {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(data);
   }
+};
+
+interface StepIllustrationRequest {
+  socket: WebSocket;
+  cookingSessionId: string;
+  stepIndex: number;
+  stepText: string;
+  recipe: Recipe;
+  getEntry: () => ActiveCookingSession | undefined;
+  generateIllustration?: typeof generateStepIllustration;
+  prefetchIllustration?: typeof prefetchNextStep;
+}
+
+const emitStepIllustrationPayload = (
+  socket: WebSocket,
+  stepText: string,
+  result: IllustrationResult
+): void => {
+  sendJson(socket, {
+    type: 'live:illustration',
+    context: 'step',
+    image: result.data,
+    format: result.format,
+    alt: stepText,
+  });
+};
+
+const emitStepIllustrationError = (socket: WebSocket): void => {
+  sendJson(socket, {
+    type: 'live:illustration_error',
+    context: 'step',
+    error: STEP_ILLUSTRATION_ERROR,
+  });
+};
+
+const requestStepIllustration = async ({
+  socket,
+  cookingSessionId,
+  stepIndex,
+  stepText,
+  recipe,
+  getEntry,
+  generateIllustration = generateStepIllustration,
+  prefetchIllustration = prefetchNextStep,
+}: StepIllustrationRequest): Promise<void> => {
+  sendJson(socket, { type: 'live:illustration_loading', context: 'step' });
+
+  let result: IllustrationResult | null = null;
+  try {
+    result = await generateIllustration(stepText, `${cookingSessionId}:${stepIndex}`);
+  } catch (err) {
+    console.error('[RamseyBot] Step illustration error:', (err as Error).message);
+  }
+
+  const entry = getEntry();
+  if (!entry || entry.currentStepIndex !== stepIndex) {
+    return;
+  }
+
+  if (result) {
+    emitStepIllustrationPayload(socket, stepText, result);
+  } else {
+    emitStepIllustrationError(socket);
+  }
+
+  prefetchIllustration(cookingSessionId, stepIndex, recipe);
 };
 
 const handleToolCall = async (entry: ActiveCookingSession, message: GeminiLiveMessage): Promise<void> => {
@@ -269,29 +336,14 @@ export const setupCookingLiveServer = (): WebSocketServer => {
           const initialStepText =
             cookingSession.recipe.instructions[cookingSession.currentStepIndex];
           if (initialStepText) {
-            const cacheKey = `${cookingSessionId}:${cookingSession.currentStepIndex}`;
-            sendJson(socket, { type: 'live:illustration_loading', context: 'step' });
-            generateStepIllustration(initialStepText, cacheKey)
-              .then((result) => {
-                if (result) {
-                  const entry = activeSessions.get(cookingSessionId);
-                  // Only send if step hasn't changed
-                  if (entry && entry.currentStepIndex === cookingSession.currentStepIndex) {
-                    sendJson(socket, {
-                      type: 'live:illustration',
-                      context: 'step',
-                      image: result.data,
-                      format: result.format,
-                      alt: initialStepText,
-                    });
-                  }
-                }
-                // Pre-fetch next step illustration
-                prefetchNextStep(cookingSessionId, cookingSession.currentStepIndex, cookingSession.recipe);
-              })
-              .catch((err) => {
-                console.error('[RamseyBot] Initial illustration error:', (err as Error).message);
-              });
+            void requestStepIllustration({
+              socket,
+              cookingSessionId,
+              stepIndex: cookingSession.currentStepIndex,
+              stepText: initialStepText,
+              recipe: cookingSession.recipe,
+              getEntry: () => activeSessions.get(cookingSessionId),
+            });
           }
         } catch (error) {
           sendJson(socket, {
@@ -374,34 +426,17 @@ export const notifyStepChange = (cookingSessionId: string, stepIndex: number, st
     }
 
     // Generate illustration for the new step (async, non-blocking)
-    const cacheKey = `${cookingSessionId}:${stepIndex}`;
-    sendJson(entry.clientSocket, { type: 'live:illustration_loading', context: 'step' });
-    generateStepIllustration(stepText, cacheKey)
-      .then((result) => {
-        if (result) {
-          // Only send if step hasn't changed since we started generating
-          if (entry.currentStepIndex === stepIndex) {
-            sendJson(entry.clientSocket, {
-              type: 'live:illustration',
-              context: 'step',
-              image: result.data,
-              format: result.format,
-              alt: stepText,
-            });
-          }
-        }
-        // Pre-fetch next step illustration
-        if (entry.recipe) {
-          prefetchNextStep(cookingSessionId, stepIndex, entry.recipe);
-        }
-      })
-      .catch((err) => {
-        console.error('[RamseyBot] Step illustration error:', (err as Error).message);
-        sendJson(entry.clientSocket, {
-          type: 'live:illustration_error',
-          context: 'step',
-          error: 'Failed to generate illustration',
-        });
-      });
+    void requestStepIllustration({
+      socket: entry.clientSocket,
+      cookingSessionId,
+      stepIndex,
+      stepText,
+      recipe: entry.recipe,
+      getEntry: () => activeSessions.get(cookingSessionId),
+    });
   }
+};
+
+export const __testing = {
+  requestStepIllustration,
 };

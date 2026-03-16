@@ -1,7 +1,9 @@
 import type { Recipe } from '../../types/recipe';
 import type { RecipeRequestBody } from '../../types/api';
 
-const RECIPE_URL = 'http://localhost:5000/api/recipe';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '')
+  || 'http://localhost:5000';
+const RECIPE_URL = `${API_BASE_URL}/api/recipe`;
 
 interface RequestRecipeParams {
   mode: RecipeRequestBody['mode'];

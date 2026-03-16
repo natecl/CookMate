@@ -10,13 +10,18 @@ class PcmPlaybackProcessor extends AudioWorkletProcessor {
     this.port.onmessage = (event) => {
       if (event.data.type === 'audio') {
         const pcm = new Int16Array(event.data.buffer);
+        let maxVal = 0;
         for (let i = 0; i < pcm.length; i++) {
+          const abs = Math.abs(pcm[i]);
+          if (abs > maxVal) maxVal = abs;
           this.ringBuffer[this.writePos] = pcm[i] / 32768;
           this.writePos = (this.writePos + 1) % this.ringBuffer.length;
           this.bufferedSamples++;
         }
+        this.port.postMessage({ type: 'debug', samples: pcm.length, maxVal, buffered: this.bufferedSamples, playing: this.playing });
         if (!this.playing && this.bufferedSamples > 1200) {
           this.playing = true;
+          this.port.postMessage({ type: 'debug', msg: 'playback started', buffered: this.bufferedSamples });
         }
       } else if (event.data.type === 'stop') {
         this.playing = false;

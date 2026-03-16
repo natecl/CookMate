@@ -4,30 +4,53 @@ import { PNG } from 'pngjs';
 import type { IllustrationResult } from '../../../types/illustration';
 
 const IMAGE_MODEL = 'gemini-2.5-flash-image';
-const TEXT_MODEL = 'gemini-2.5-flash-lite';
-
 const STYLE_PREFIX =
   'Flat cartoon-style cooking illustration, clean vector art, instructional cookbook style, simple white background, no text labels:';
 
 const FRAME_COUNT = 3;
-const GIF_DELAY = 900; // ms per frame
-const IMAGE_SIZE = 512;
+const GIF_DELAY = 900;
+const CANVAS_SIZE = 320;
 
-// In-memory cache: cacheKey -> { data: base64, format: 'gif'|'png' }
+const WHITE: [number, number, number, number] = [255, 252, 247, 255];
+const INK: [number, number, number, number] = [52, 37, 25, 255];
+const BOARD: [number, number, number, number] = [225, 199, 163, 255];
+const ACCENT: [number, number, number, number] = [210, 115, 46, 255];
+const GREEN: [number, number, number, number] = [107, 153, 78, 255];
+const RED: [number, number, number, number] = [204, 84, 76, 255];
+const GRAY: [number, number, number, number] = [117, 126, 140, 255];
+const GOLD: [number, number, number, number] = [245, 184, 78, 255];
+const BLUE: [number, number, number, number] = [95, 137, 198, 255];
+
+type StillImageFormat = Exclude<IllustrationResult['format'], 'gif'>;
+
+interface StillImageResult {
+  buffer: Buffer;
+  format: StillImageFormat;
+}
+
+interface GeneratedImagePart {
+  inlineData?: {
+    data?: string;
+    mimeType?: string;
+  };
+}
+
+interface DecodedPngFrame {
+  width: number;
+  height: number;
+  data: Buffer;
+  source: Buffer;
+}
+
+type ImageGenerator = (prompt: string) => Promise<StillImageResult | null>;
+type SceneKind = 'cut' | 'mix' | 'pour' | 'heat' | 'knead' | 'plate';
+
 const cache = new Map<string, IllustrationResult>();
 const MAX_CACHE = 50;
-
 let client: GoogleGenAI | undefined;
-const getClient = (): GoogleGenAI => {
-  if (!client) {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
-    if (!apiKey) throw new Error('Gemini API key is missing');
-    client = new GoogleGenAI({ apiKey });
-  }
-  return client;
-};
+let imageGeneratorOverride: ImageGenerator | null = null;
+let remoteImageGenerationDisabled = false;
 
-// Motion keywords — steps containing these involve visible technique/action
 const MOTION_KEYWORDS = [
   'slice', 'cut', 'chop', 'dice', 'mince', 'julienne', 'trim',
   'stir', 'whisk', 'beat', 'mix', 'fold', 'toss', 'blend',
@@ -38,19 +61,77 @@ const MOTION_KEYWORDS = [
   'brush', 'baste', 'glaze', 'score', 'carve',
 ];
 
-/**
- * Classify whether a cooking step involves motion/technique or is static.
- * Uses fast keyword matching instead of an API call.
- */
+const getClient = (): GoogleGenAI => {
+  if (!client) {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('Gemini API key is missing');
+    }
+    client = new GoogleGenAI({ apiKey });
+  }
+  return client;
+};
+
 function isMotionStep(stepText: string): boolean {
   const lower = stepText.toLowerCase();
   return MOTION_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
-/**
- * Generate a single illustration image. Returns a PNG Buffer or null.
- */
-async function generateSingleImage(prompt: string): Promise<Buffer | null> {
+function normalizeFormat(mimeType: string | undefined, buffer: Buffer): StillImageFormat | null {
+  const isPng = buffer.length >= 8
+    && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const isJpeg = buffer.length >= 3
+    && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isWebp = buffer.length >= 12
+    && buffer.subarray(0, 4).toString('ascii') === 'RIFF'
+    && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+
+  if (mimeType === 'image/png') return isPng ? 'png' : null;
+  if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') return isJpeg ? 'jpeg' : null;
+  if (mimeType === 'image/webp') return isWebp ? 'webp' : null;
+
+  if (isPng) {
+    return 'png';
+  }
+  if (isJpeg) {
+    return 'jpeg';
+  }
+  if (isWebp) {
+    return 'webp';
+  }
+
+  return null;
+}
+
+function extractGeneratedImage(parts: GeneratedImagePart[]): StillImageResult | null {
+  for (const part of parts) {
+    const inlineData = part.inlineData;
+    if (!inlineData?.data) {
+      continue;
+    }
+
+    const buffer = Buffer.from(inlineData.data, 'base64');
+    const format = normalizeFormat(inlineData.mimeType, buffer);
+    if (!format) {
+      console.warn('[IllustrationService] Ignoring unsupported image part:', inlineData.mimeType || 'unknown');
+      continue;
+    }
+
+    return { buffer, format };
+  }
+
+  return null;
+}
+
+async function generateSingleImage(prompt: string): Promise<StillImageResult | null> {
+  if (imageGeneratorOverride) {
+    return imageGeneratorOverride(prompt);
+  }
+
+  if (remoteImageGenerationDisabled) {
+    return null;
+  }
+
   const ai = getClient();
   try {
     const response = await ai.models.generateContent({
@@ -61,137 +142,326 @@ async function generateSingleImage(prompt: string): Promise<Buffer | null> {
       },
     });
 
-    const parts = response.candidates?.[0]?.content?.parts || [];
-    for (const part of parts) {
-      if (part.inlineData?.data) {
-        return Buffer.from(part.inlineData.data, 'base64');
+    const candidates = response.candidates ?? [];
+    for (const candidate of candidates) {
+      const image = extractGeneratedImage((candidate.content?.parts ?? []) as GeneratedImagePart[]);
+      if (image) {
+        return image;
       }
     }
+
+    console.warn('[IllustrationService] No usable image returned by model');
     return null;
   } catch (err) {
-    console.error('[IllustrationService] Image gen failed:', (err as Error).message);
+    const message = (err as Error).message;
+    if (/RESOURCE_EXHAUSTED|quota|429/i.test(message)) {
+      remoteImageGenerationDisabled = true;
+      console.warn('[IllustrationService] Remote image generation disabled for this process:', message);
+    } else {
+      console.error('[IllustrationService] Image gen failed:', message);
+    }
     return null;
   }
 }
 
-/**
- * Decode a PNG buffer into raw RGBA pixel data + dimensions.
- */
-function decodePng(buffer: Buffer): { width: number; height: number; data: Buffer } {
-  const png = PNG.sync.read(buffer);
-  return { width: png.width, height: png.height, data: png.data };
+function decodePng(buffer: Buffer): DecodedPngFrame | null {
+  try {
+    const png = PNG.sync.read(buffer);
+    return { width: png.width, height: png.height, data: png.data, source: buffer };
+  } catch (err) {
+    console.warn('[IllustrationService] Failed to decode PNG frame:', (err as Error).message);
+    return null;
+  }
 }
 
-/**
- * Stitch multiple PNG buffers into an animated GIF.
- * Returns a Buffer containing the GIF data.
- */
-function stitchGif(pngBuffers: Buffer[]): Buffer {
-  // Decode first frame to get dimensions
-  const first = decodePng(pngBuffers[0]);
-  const { width, height } = first;
+function stitchGif(frames: DecodedPngFrame[]): Buffer | null {
+  try {
+    const first = frames[0];
+    const encoder = new GIFEncoder(first.width, first.height);
+    encoder.setDelay(GIF_DELAY);
+    encoder.setRepeat(0);
+    encoder.setQuality(10);
+    encoder.start();
+    encoder.addFrame(first.data);
 
-  const encoder = new GIFEncoder(width, height);
-  encoder.setDelay(GIF_DELAY);
-  encoder.setRepeat(0); // loop forever
-  encoder.setQuality(10);
-  encoder.start();
+    for (let i = 1; i < frames.length; i++) {
+      const frame = frames[i];
+      if (frame.width === first.width && frame.height === first.height) {
+        encoder.addFrame(frame.data);
+      }
+    }
 
-  // Add first frame
-  encoder.addFrame(first.data);
+    encoder.finish();
+    return encoder.out.getData();
+  } catch (err) {
+    console.error('[IllustrationService] GIF stitch failed:', (err as Error).message);
+    return null;
+  }
+}
 
-  // Add remaining frames, resizing if needed
-  for (let i = 1; i < pngBuffers.length; i++) {
-    const decoded = decodePng(pngBuffers[i]);
-    if (decoded.width === width && decoded.height === height) {
-      encoder.addFrame(decoded.data);
-    } else {
-      // If dimensions differ, skip this frame rather than crash
-      console.warn(
-        `[IllustrationService] Frame ${i} size mismatch: ${decoded.width}x${decoded.height} vs ${width}x${height}, skipping`
-      );
+function createCanvas(): PNG {
+  const png = new PNG({ width: CANVAS_SIZE, height: CANVAS_SIZE });
+  fillRect(png, 0, 0, CANVAS_SIZE, CANVAS_SIZE, WHITE);
+  return png;
+}
+
+function setPixel(png: PNG, x: number, y: number, color: [number, number, number, number]): void {
+  if (x < 0 || x >= png.width || y < 0 || y >= png.height) {
+    return;
+  }
+  const index = (png.width * y + x) << 2;
+  png.data[index] = color[0];
+  png.data[index + 1] = color[1];
+  png.data[index + 2] = color[2];
+  png.data[index + 3] = color[3];
+}
+
+function fillRect(
+  png: PNG,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  color: [number, number, number, number]
+): void {
+  const startX = Math.max(0, Math.floor(x));
+  const startY = Math.max(0, Math.floor(y));
+  const endX = Math.min(png.width, Math.ceil(x + width));
+  const endY = Math.min(png.height, Math.ceil(y + height));
+
+  for (let py = startY; py < endY; py++) {
+    for (let px = startX; px < endX; px++) {
+      setPixel(png, px, py, color);
+    }
+  }
+}
+
+function drawCircle(
+  png: PNG,
+  cx: number,
+  cy: number,
+  radius: number,
+  color: [number, number, number, number]
+): void {
+  const minX = Math.floor(cx - radius);
+  const maxX = Math.ceil(cx + radius);
+  const minY = Math.floor(cy - radius);
+  const maxY = Math.ceil(cy + radius);
+
+  for (let py = minY; py <= maxY; py++) {
+    for (let px = minX; px <= maxX; px++) {
+      const dx = px - cx;
+      const dy = py - cy;
+      if (dx * dx + dy * dy <= radius * radius) {
+        setPixel(png, px, py, color);
+      }
+    }
+  }
+}
+
+function drawLine(
+  png: PNG,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  color: [number, number, number, number],
+  thickness = 2
+): void {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const steps = Math.max(Math.abs(dx), Math.abs(dy));
+  if (steps === 0) {
+    drawCircle(png, x1, y1, thickness, color);
+    return;
+  }
+
+  for (let i = 0; i <= steps; i++) {
+    const x = x1 + (dx * i) / steps;
+    const y = y1 + (dy * i) / steps;
+    drawCircle(png, x, y, thickness, color);
+  }
+}
+
+function drawBoard(png: PNG): void {
+  fillRect(png, 45, 105, 230, 125, BOARD);
+  fillRect(png, 58, 118, 204, 99, [239, 216, 180, 255]);
+}
+
+function inferScene(stepText: string): SceneKind {
+  const lower = stepText.toLowerCase();
+  if (/(slice|cut|chop|dice|mince|julienne|trim|grate|shred|zest|carve)/.test(lower)) return 'cut';
+  if (/(stir|whisk|beat|mix|fold|toss|blend)/.test(lower)) return 'mix';
+  if (/(pour|drizzle|spread|layer|glaze|baste|brush)/.test(lower)) return 'pour';
+  if (/(knead|roll|flatten|shape|press|stretch|wrap)/.test(lower)) return 'knead';
+  if (/(sear|saute|sauté|fry|grill|flip|turn|cook|heat)/.test(lower)) return 'heat';
+  return 'plate';
+}
+
+function renderScene(png: PNG, scene: SceneKind, frameIndex: number): void {
+  const motion = frameIndex - 1;
+
+  if (scene === 'cut') {
+    drawBoard(png);
+    drawCircle(png, 125 + motion * 10, 170, 24, GREEN);
+    drawCircle(png, 162 + motion * 8, 170, 18, GREEN);
+    fillRect(png, 92, 148, 8, 44, RED);
+    drawLine(png, 214, 122 + motion * 7, 140, 198 + motion * 4, GRAY, 5);
+    fillRect(png, 216, 116 + motion * 7, 34, 16, INK);
+    drawLine(png, 236, 150, 236 + motion * 8, 200 + motion * 6, ACCENT, 3);
+  } else if (scene === 'mix') {
+    drawCircle(png, 160, 175, 62, [240, 232, 225, 255]);
+    drawCircle(png, 160, 175, 52, BLUE);
+    drawLine(png, 155 + motion * 9, 105, 175 - motion * 6, 190, GRAY, 5);
+    drawCircle(png, 160 + motion * 12, 158, 14, GOLD);
+    drawCircle(png, 140 - motion * 9, 186, 12, RED);
+    drawLine(png, 115, 135, 205, 135 + motion * 7, WHITE, 3);
+    drawLine(png, 116, 205, 204, 205 - motion * 7, WHITE, 3);
+  } else if (scene === 'pour') {
+    fillRect(png, 70, 92, 78, 56, GRAY);
+    fillRect(png, 84, 82, 18, 18, INK);
+    drawLine(png, 146, 135, 178 + motion * 5, 165 + motion * 12, GOLD, 4);
+    drawLine(png, 178 + motion * 5, 165 + motion * 12, 198 + motion * 5, 205, GOLD, 4);
+    fillRect(png, 180, 200, 82, 26, BLUE);
+    drawLine(png, 182, 198, 258, 198, INK, 2);
+    drawCircle(png, 214, 180 + motion * 3, 10, ACCENT);
+  } else if (scene === 'heat') {
+    fillRect(png, 94, 188, 132, 20, INK);
+    fillRect(png, 120, 208, 80, 12, GRAY);
+    drawLine(png, 225, 198, 266, 186 + motion * 4, GRAY, 6);
+    fillRect(png, 118, 212, 12, 10, RED);
+    fillRect(png, 150, 208 - motion * 5, 14, 18 + motion * 5, GOLD);
+    fillRect(png, 186, 210 - motion * 3, 14, 16 + motion * 3, ACCENT);
+    drawCircle(png, 145 + motion * 6, 176, 11, GREEN);
+    drawCircle(png, 176 - motion * 6, 172, 12, RED);
+  } else if (scene === 'knead') {
+    fillRect(png, 60, 208, 200, 12, BOARD);
+    drawCircle(png, 160, 178, 44, [244, 214, 164, 255]);
+    fillRect(png, 78 + motion * 10, 136, 32, 22, RED);
+    fillRect(png, 210 - motion * 10, 136, 32, 22, RED);
+    drawLine(png, 95 + motion * 10, 158, 126, 182, INK, 3);
+    drawLine(png, 226 - motion * 10, 158, 194, 182, INK, 3);
+  } else {
+    drawCircle(png, 160, 176, 74, [244, 240, 232, 255]);
+    drawCircle(png, 160, 176, 62, WHITE);
+    drawCircle(png, 136 + motion * 4, 168, 14, GREEN);
+    drawCircle(png, 180, 166 + motion * 3, 12, RED);
+    drawCircle(png, 164 - motion * 3, 194, 16, GOLD);
+    drawLine(png, 98, 122, 222, 230, GRAY, 4);
+    drawLine(png, 222, 122, 98, 230, GRAY, 4);
+  }
+}
+
+function renderFallbackStill(stepText: string): Buffer {
+  const png = createCanvas();
+  renderScene(png, inferScene(stepText), 1);
+  return PNG.sync.write(png);
+}
+
+function renderFallbackMotion(stepText: string): IllustrationResult {
+  const scene = inferScene(stepText);
+  const frames: DecodedPngFrame[] = [];
+
+  for (let i = 0; i < FRAME_COUNT; i++) {
+    const png = createCanvas();
+    renderScene(png, scene, i);
+    const buffer = PNG.sync.write(png);
+    const decoded = decodePng(buffer);
+    if (decoded) {
+      frames.push(decoded);
     }
   }
 
-  encoder.finish();
-  return encoder.out.getData();
+  const gifBuffer = frames.length >= 2 ? stitchGif(frames) : null;
+  if (gifBuffer) {
+    return { data: gifBuffer.toString('base64'), format: 'gif' };
+  }
+
+  return { data: renderFallbackStill(stepText).toString('base64'), format: 'png' };
 }
 
-/**
- * Build frame prompts for an animated sequence.
- */
-function buildFramePrompts(stepText: string): string[] {
-  return [
-    `Frame 1 of ${FRAME_COUNT}: The very beginning - "${stepText}". Show ingredients/tools ready, before action starts.`,
-    `Frame 2 of ${FRAME_COUNT}: Midway through - "${stepText}". The technique is in progress.`,
-    `Frame 3 of ${FRAME_COUNT}: Nearly complete - "${stepText}". Show the result taking shape.`,
-  ];
+function cacheResult(cacheKey: string | undefined, result: IllustrationResult): void {
+  if (!cacheKey) {
+    return;
+  }
+  if (cache.size >= MAX_CACHE) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) {
+      cache.delete(oldest);
+    }
+  }
+  cache.set(cacheKey, result);
 }
 
-/**
- * Generate an illustration for a cooking step.
- * Returns { data: base64String, format: 'gif'|'png' } or null.
- */
 export async function generateStepIllustration(stepText: string, cacheKey?: string): Promise<IllustrationResult | null> {
-  // Check cache
   if (cacheKey && cache.has(cacheKey)) {
     console.log('[IllustrationService] Cache hit:', cacheKey);
     return cache.get(cacheKey)!;
   }
 
   console.log('[IllustrationService] Generating for step:', stepText);
-
   const motion = isMotionStep(stepText);
-  let result: IllustrationResult;
+  let result: IllustrationResult | null = null;
 
   if (motion) {
     console.log('[IllustrationService] Motion step detected, generating', FRAME_COUNT, 'frames');
-    const prompts = buildFramePrompts(stepText);
-    const frames = await Promise.all(prompts.map((p) => generateSingleImage(p)));
-    const validFrames = frames.filter((f): f is Buffer => f !== null);
+    const prompts = [
+      `Frame 1 of ${FRAME_COUNT}: The very beginning - "${stepText}". Show ingredients/tools ready, before action starts.`,
+      `Frame 2 of ${FRAME_COUNT}: Midway through - "${stepText}". The technique is in progress.`,
+      `Frame 3 of ${FRAME_COUNT}: Nearly complete - "${stepText}". Show the result taking shape.`,
+    ];
 
-    if (validFrames.length < 2) {
-      // Not enough frames for animation, fall back to static
-      const singleFrame = validFrames[0] || (await generateSingleImage(stepText));
-      if (!singleFrame) return null;
-      result = { data: singleFrame.toString('base64'), format: 'png' };
-    } else {
-      const gifBuffer = stitchGif(validFrames);
-      result = { data: gifBuffer.toString('base64'), format: 'gif' };
+    const frames = await Promise.all(prompts.map((prompt) => generateSingleImage(prompt)));
+    const decodedFrames = frames
+      .filter((frame): frame is StillImageResult => frame !== null && frame.format === 'png')
+      .map((frame) => decodePng(frame.buffer))
+      .filter((frame): frame is DecodedPngFrame => frame !== null);
+
+    if (decodedFrames.length >= 2) {
+      const gifBuffer = stitchGif(decodedFrames);
+      if (gifBuffer) {
+        result = { data: gifBuffer.toString('base64'), format: 'gif' };
+      }
+    }
+
+    if (!result) {
+      result = renderFallbackMotion(stepText);
     }
   } else {
     console.log('[IllustrationService] Static step detected, generating single image');
-    const pngBuffer = await generateSingleImage(stepText);
-    if (!pngBuffer) return null;
-    result = { data: pngBuffer.toString('base64'), format: 'png' };
-  }
-
-  // Cache the result (with eviction)
-  if (cacheKey && result) {
-    if (cache.size >= MAX_CACHE) {
-      const oldest = cache.keys().next().value;
-      if (oldest !== undefined) {
-        cache.delete(oldest);
-      }
+    const stillImage = await generateSingleImage(stepText);
+    if (stillImage) {
+      result = { data: stillImage.buffer.toString('base64'), format: stillImage.format };
+    } else {
+      result = { data: renderFallbackStill(stepText).toString('base64'), format: 'png' };
     }
-    cache.set(cacheKey, result);
   }
 
-  console.log(
-    '[IllustrationService] Generated:',
-    result.format,
-    '~' + Math.round(result.data.length / 1024) + 'KB'
-  );
+  cacheResult(cacheKey, result);
+  console.log('[IllustrationService] Generated:', result.format, '~' + Math.round(result.data.length / 1024) + 'KB');
   return result;
 }
 
-/**
- * Generate an illustration for a clarifying question (always static PNG).
- * Returns { data: base64String, format: 'png' } or null.
- */
 export async function generateClarifyIllustration(description: string): Promise<IllustrationResult | null> {
   console.log('[IllustrationService] Generating clarify illustration:', description);
-  const pngBuffer = await generateSingleImage(description);
-  if (!pngBuffer) return null;
-  return { data: pngBuffer.toString('base64'), format: 'png' };
+  const stillImage = await generateSingleImage(description);
+  if (stillImage) {
+    return { data: stillImage.buffer.toString('base64'), format: stillImage.format };
+  }
+  return { data: renderFallbackStill(description).toString('base64'), format: 'png' };
 }
+
+export const __testing = {
+  clearCache(): void {
+    cache.clear();
+  },
+  setImageGeneratorOverride(generator: ImageGenerator | null): void {
+    imageGeneratorOverride = generator;
+  },
+  setRemoteImageGenerationDisabled(value: boolean): void {
+    remoteImageGenerationDisabled = value;
+  },
+  extractGeneratedImage,
+  renderFallbackStill,
+  renderFallbackMotion,
+};

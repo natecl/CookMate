@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DetectedIngredient, ScanServerMessage } from '../../types/websocket';
 
-const WS_URL = 'ws://localhost:5000/ws/scan';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '')
+  || 'http://localhost:5000';
+const WS_BASE_URL = (import.meta.env.VITE_WS_BASE_URL as string | undefined)?.replace(/\/$/, '')
+  || API_BASE_URL.replace(/^http/, 'ws');
+const WS_URL = `${WS_BASE_URL}/ws/scan`;
 const FRAME_INTERVAL_MS = 1000;
 const JPEG_QUALITY = 0.7;
 const FRAME_WIDTH = 480;
