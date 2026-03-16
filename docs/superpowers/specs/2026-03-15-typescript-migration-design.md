@@ -34,7 +34,7 @@ cookmate/
 │   │   ├── useCookingCamera.ts
 │   │   ├── useCookingSession.ts
 │   │   ├── useLiveIngredientScan.ts
-│   │   ├── useRamseyBot.ts
+│   │   ├── useNanaBot.ts
 │   │   └── useRecipeRequest.ts
 │   ├── pages/
 │   │   ├── App.tsx
@@ -265,11 +265,11 @@ export class RecipeRequestError extends Error {
 ### Phase 2: Parallel Migration (3 sub-agents in worktrees)
 
 **Agent A — Server Migration:**
-Files: `server/index.js`, `server/controllers/{cooking,health,vision}Controller.js`, `server/routes/{cooking,health}Routes.js`, `server/services/agent/{nanabot,ramseyBot}Service.js`, `server/services/vision/{illustration,ingredientVision}Service.js`, `server/services/{cookingSession,recipe}Service.js`, `server/utils/ingredientNormalization.js`, `server/ws/{cookingLive,scan}Server.js`
+Files: `server/index.js`, `server/controllers/{cooking,health,vision}Controller.js`, `server/routes/{cooking,health}Routes.js`, `server/services/agent/{ramseyBot,nanabot}Service.js`, `server/services/vision/{illustration,ingredientVision}Service.js`, `server/services/{cookingSession,recipe}Service.js`, `server/utils/ingredientNormalization.js`, `server/ws/{cookingLive,scan}Server.js`
 Task: Convert each file to `.ts`, apply shared types from `types/`, use relative imports, delete `.js` originals.
 
 **Agent B — Client Migration:**
-Files: `client/pages/{App,CookingPage,MainPage,YourRecipePage,index}.jsx`, `client/components/{ErrorMessage,IngredientScanPanel,LoadingIndicator,ModeSelector}.jsx`, `client/hooks/{useCookingCamera,useCookingSession,useLiveIngredientScan,useRamseyBot,useRecipeRequest}.js`, `client/vite.config.js`
+Files: `client/pages/{App,CookingPage,MainPage,YourRecipePage,index}.jsx`, `client/components/{ErrorMessage,IngredientScanPanel,LoadingIndicator,ModeSelector}.jsx`, `client/hooks/{useCookingCamera,useCookingSession,useLiveIngredientScan,useNanaBot,useRecipeRequest}.js`, `client/vite.config.js`
 Task: Convert each file to `.tsx`/`.ts`, apply shared types from `types/`, use relative imports, delete `.js`/`.jsx` originals.
 
 **Agent C — AGENTS.md Rewrite:**

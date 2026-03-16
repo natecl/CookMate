@@ -5,7 +5,6 @@ import {
   sendEvent,
   CookingSessionError
 } from '../services/cookingSessionService';
-import { notifyStepChange } from '../ws/cookingLiveServer';
 
 export const postCreateSession = (req: Request, res: Response): void => {
   try {
@@ -35,21 +34,14 @@ export const postSessionEvent = (req: Request, res: Response): void => {
   try {
     const { sessionId } = req.params;
     const event = req.body;
-    const previousSession = getSession(sessionId);
-    const previousStep = previousSession?.currentStepIndex;
 
     const updatedSession = sendEvent(sessionId, event);
 
-    // Notify RamseyBot if the step changed
-    if (
-      updatedSession.currentStepIndex !== previousStep &&
-      updatedSession.status === 'active'
-    ) {
-      const stepText = updatedSession.recipe.instructions[updatedSession.currentStepIndex];
-      if (stepText) {
-        notifyStepChange(sessionId, updatedSession.currentStepIndex, stepText);
-      }
-    }
+    // Step change notification is handled by the client via the
+    // live:step_changed WebSocket message sent before the HTTP request.
+    // Triggering it here as well caused a duplicate requestStepIllustration
+    // whose live:illustration_loading message could race and clear the
+    // illustration that the first request had just delivered.
 
     res.status(200).json(updatedSession);
   } catch (error) {

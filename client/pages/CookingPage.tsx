@@ -1,9 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import type { Recipe } from '../../types/recipe';
 import { useCookingSession } from '../hooks/useCookingSession';
 import { useCookingCamera } from '../hooks/useCookingCamera';
-import { useRamseyBot } from '../hooks/useRamseyBot';
+import { useNanaBot } from '../hooks/useNanaBot';
 import ErrorMessage from '../components/ErrorMessage';
 
 interface VoiceWaveProps {
@@ -60,12 +60,12 @@ const CookingPage = () => {
   } = useCookingCamera();
 
   const {
-    isConnected: ramseyConnected,
+    isConnected: nanaConnected,
     isModelSpeaking,
     audioLevel,
     isPaused,
     audioBlocked,
-    error: ramseyError,
+    error: nanaError,
     stepIllustration,
     clarifyIllustration,
     illustrationLoading,
@@ -73,9 +73,9 @@ const CookingPage = () => {
     stopVoiceSession,
     togglePause,
     unlockAudio,
+    notifyStepChange: notifyBotStepChange,
     dismissClarifyIllustration,
-    clearStepIllustration,
-  } = useRamseyBot();
+  } = useNanaBot();
 
   useEffect(() => {
     if (!recipe) return;
@@ -92,7 +92,7 @@ const CookingPage = () => {
       await startCamera();
       if (cancelled) return;
 
-      // Auto-start RamseyBot after cooking session and camera are ready
+      // Auto-start NanaBot after cooking session and camera are ready
       if (started) {
         startVoiceSession(created.sessionId, videoRef);
       }
@@ -106,15 +106,7 @@ const CookingPage = () => {
     };
   }, []);
 
-  // Clear step illustration when navigating to a new step (skip initial render)
   const currentIndex = session?.currentStepIndex ?? 0;
-  const prevIndexRef = useRef(currentIndex);
-  useEffect(() => {
-    if (prevIndexRef.current !== currentIndex) {
-      clearStepIllustration();
-      prevIndexRef.current = currentIndex;
-    }
-  }, [currentIndex, clearStepIllustration]);
 
   if (!recipe) {
     return (
@@ -133,10 +125,15 @@ const CookingPage = () => {
   const allComplete = stepCompletion.length > 0 && stepCompletion.every(Boolean);
 
   const handleCompleteStep = async () => {
+    const nextIndex = currentIndex + 1;
     if (stepCompletion[currentIndex]) {
+      // Interrupt voice and flush audio immediately, before awaiting the API
+      notifyBotStepChange(nextIndex);
       await nextStep();
       return;
     }
+    // Interrupt voice and flush audio immediately, before awaiting the API
+    notifyBotStepChange(nextIndex);
     await completeStep();
   };
 
@@ -147,7 +144,7 @@ const CookingPage = () => {
     navigate('/your-recipe', { state: { recipe } });
   };
 
-  const displayError = error || cameraError || ramseyError;
+  const displayError = error || cameraError || nanaError;
 
   return (
     <main className="cooking-page">
@@ -168,10 +165,10 @@ const CookingPage = () => {
           Flip
         </button>
 
-        {ramseyConnected && (
-          <div className="ramsey-status">
-            <span className="ramsey-indicator" />
-            RamseyBot
+        {nanaConnected && (
+          <div className="nana-status">
+            <span className="nana-indicator" />
+            NanaBot
           </div>
         )}
 
@@ -245,7 +242,10 @@ const CookingPage = () => {
           <button
             type="button"
             className="secondary-button"
-            onClick={previousStep}
+            onClick={() => {
+              notifyBotStepChange(currentIndex - 1);
+              previousStep();
+            }}
             disabled={isFirstStep || loading}
           >
             Previous

@@ -322,17 +322,17 @@ ul {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: rgba(255, 253, 249, 0.25);
+  background: rgba(255, 255, 255, 0.45);
   transition: background 180ms ease, transform 180ms ease;
 }
 
 .step-dot-active {
-  background: var(--accent);
+  background: #ffffff;
   transform: scale(1.3);
 }
 
 .step-dot-completed {
-  background: #4ade80;
+  background: rgba(255, 255, 255, 0.75);
 }
 
 .cooking-bottom-bar {
@@ -408,9 +408,9 @@ ul {
   gap: 6px;
 }
 
-/* RamseyBot Status */
+/* NanaBot Status */
 
-.ramsey-status {
+.nana-status {
   position: absolute;
   top: 16px;
   left: 16px;
@@ -427,7 +427,7 @@ ul {
   letter-spacing: 0.02em;
 }
 
-.ramsey-indicator {
+.nana-indicator {
   width: 8px;
   height: 8px;
   border-radius: 50%;

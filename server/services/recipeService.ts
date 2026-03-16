@@ -1,4 +1,4 @@
-import { generateRecipeFromPrompt } from './agent/nanabotService';
+import { generateRecipeFromPrompt } from './agent/ramseyBotService';
 import { normalizeIngredientList } from '../utils/ingredientNormalization';
 import { RecipeRequestError } from '../../types/errors';
 import type { Recipe } from '../../types/recipe';

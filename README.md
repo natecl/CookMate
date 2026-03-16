@@ -17,7 +17,7 @@ This repository currently includes a **minimal local development setup** for fro
   - Method: `POST`
   - Path: `/api/recipe`
   - URL: `http://localhost:5000/api/recipe`
-- Backend recipe generation via ADK (`nanabot`) and Gemini
+- Backend recipe generation via ADK (`ramseyBot`) and Gemini
 
 ### Example Request Body
 

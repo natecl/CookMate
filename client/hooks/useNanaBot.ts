@@ -20,7 +20,7 @@ interface TranscriptEntry {
   text: string;
 }
 
-export const useRamseyBot = () => {
+export const useNanaBot = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isModelSpeaking, setIsModelSpeaking] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -43,6 +43,7 @@ export const useRamseyBot = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isPausedRef = useRef(false);
   const intentionalCloseRef = useRef(false);
+  const scheduledSourcesRef = useRef<AudioBufferSourceNode[]>([]);
 
   // Keep ref in sync with state for use inside worklet callback
   useEffect(() => {
@@ -107,6 +108,7 @@ export const useRamseyBot = () => {
     }
 
     nextPlayTimeRef.current = 0;
+    scheduledSourcesRef.current = [];
 
     if (playbackContextRef.current) {
       playbackContextRef.current.close().catch(() => {});
@@ -129,6 +131,22 @@ export const useRamseyBot = () => {
     setIsModelSpeaking(false);
     setAudioLevel(0);
     setIsPaused(false);
+  }, []);
+
+  const flushAudioPlayback = useCallback(() => {
+    // Stop all scheduled audio sources immediately
+    for (const source of scheduledSourcesRef.current) {
+      try {
+        source.stop();
+      } catch (_e) {
+        // Already stopped
+      }
+    }
+    scheduledSourcesRef.current = [];
+
+    // Reset the play time so new audio starts immediately
+    nextPlayTimeRef.current = 0;
+    setIsModelSpeaking(false);
   }, []);
 
   const startMicCapture = useCallback(async () => {
@@ -267,10 +285,17 @@ export const useRamseyBot = () => {
             source.start(startTime);
             nextPlayTimeRef.current = startTime + audioBuffer.duration;
 
+            // Track scheduled source so it can be cancelled on interruption
+            scheduledSourcesRef.current.push(source);
+
             if (!isPausedRef.current) {
               setIsModelSpeaking(true);
             }
             source.onended = () => {
+              // Remove from tracked sources
+              const idx = scheduledSourcesRef.current.indexOf(source);
+              if (idx !== -1) scheduledSourcesRef.current.splice(idx, 1);
+
               if (nextPlayTimeRef.current <= ctx.currentTime + 0.05) {
                 setIsModelSpeaking(false);
               }
@@ -304,6 +329,7 @@ export const useRamseyBot = () => {
             setIsModelSpeaking(false);
           } else if (msg.type === 'live:illustration_loading') {
             if (msg.context === 'step') {
+              setStepIllustration(null);
               setIllustrationLoading(true);
             }
           } else if (msg.type === 'live:illustration') {
@@ -318,6 +344,9 @@ export const useRamseyBot = () => {
               setStepIllustration(null);
               setIllustrationLoading(false);
             }
+          } else if (msg.type === 'live:interrupted') {
+            // Server interrupted Gemini's turn — flush queued audio immediately
+            flushAudioPlayback();
           } else if (msg.type === 'live:error') {
             setError(msg.error || 'Voice agent error');
           }
@@ -356,10 +385,14 @@ export const useRamseyBot = () => {
     setClarifyIllustration(null);
   }, []);
 
-  const clearStepIllustration = useCallback(() => {
-    setStepIllustration(null);
-    setIllustrationLoading(false);
-  }, []);
+  const notifyStepChange = useCallback((stepIndex: number) => {
+    if (socketRef.current?.readyState === 1) {
+      // Flush local audio immediately so the user hears silence right away
+      flushAudioPlayback();
+      // Tell the server to interrupt Gemini and switch to the new step
+      socketRef.current.send(JSON.stringify({ type: 'live:step_changed', stepIndex }));
+    }
+  }, [flushAudioPlayback]);
 
   const unlockAudio = useCallback(() => {
     if (!isPausedRef.current && playbackContextRef.current?.state === 'suspended') {
@@ -389,7 +422,7 @@ export const useRamseyBot = () => {
     stopVoiceSession,
     togglePause,
     unlockAudio,
+    notifyStepChange,
     dismissClarifyIllustration,
-    clearStepIllustration,
   };
 };

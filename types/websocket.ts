@@ -6,6 +6,7 @@ import type WebSocket from 'ws';
 export type CookingLiveClientMessage =
   | { type: 'live:start'; cookingSessionId: string }
   | { type: 'live:video'; image: string }
+  | { type: 'live:step_changed'; stepIndex: number }
   | { type: 'live:stop' };
 
 export type CookingLiveServerMessage =
@@ -15,6 +16,7 @@ export type CookingLiveServerMessage =
   | { type: 'live:illustration_loading'; context: 'step' | 'clarify' }
   | { type: 'live:illustration'; context: 'step' | 'clarify'; image: string; format: 'png' | 'gif' | 'jpeg' | 'webp'; alt: string }
   | { type: 'live:illustration_error'; context: 'step' | 'clarify'; error: string }
+  | { type: 'live:interrupted' }
   | { type: 'live:error'; error: string };
 
 // --- Scan protocol ---

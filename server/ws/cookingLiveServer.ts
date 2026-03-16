@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { createLiveSession } from '../services/agent/ramseyBotService';
+import { createLiveSession } from '../services/agent/nanabotService';
 import { getSession } from '../services/cookingSessionService';
 import {
   generateStepIllustration,
@@ -90,7 +90,7 @@ const requestStepIllustration = async ({
   try {
     result = await generateIllustration(stepText, `${cookingSessionId}:${stepIndex}`);
   } catch (err) {
-    console.error('[RamseyBot] Step illustration error:', (err as Error).message);
+    console.error('[NanaBot] Step illustration error:', (err as Error).message);
   }
 
   const entry = getEntry();
@@ -116,7 +116,7 @@ const handleToolCall = async (entry: ActiveCookingSession, message: GeminiLiveMe
       const description = call.args?.description as string | undefined;
       if (!description) continue;
 
-      console.log('[RamseyBot] Tool call: generate_illustration -', description);
+      console.log('[NanaBot] Tool call: generate_illustration -', description);
       sendJson(entry.clientSocket, { type: 'live:illustration_loading', context: 'clarify' });
 
       try {
@@ -137,7 +137,7 @@ const handleToolCall = async (entry: ActiveCookingSession, message: GeminiLiveMe
           });
         }
       } catch (err) {
-        console.error('[RamseyBot] Clarify illustration error:', (err as Error).message);
+        console.error('[NanaBot] Clarify illustration error:', (err as Error).message);
         sendJson(entry.clientSocket, {
           type: 'live:illustration_error',
           context: 'clarify',
@@ -170,7 +170,7 @@ const handleGeminiMessage = (entry: ActiveCookingSession, message: GeminiLiveMes
   // Handle tool calls from the model
   if (message.toolCall) {
     handleToolCall(entry, message).catch((err) => {
-      console.error('[RamseyBot] Unhandled tool call error:', (err as Error).message);
+      console.error('[NanaBot] Unhandled tool call error:', (err as Error).message);
     });
   }
 
@@ -197,12 +197,12 @@ const handleGeminiMessage = (entry: ActiveCookingSession, message: GeminiLiveMes
       for (const part of serverContent.modelTurn.parts) {
         if (part.inlineData && part.inlineData.data) {
           const audioBytes = Buffer.from(part.inlineData.data, 'base64');
-          console.log(`[RamseyBot] Forwarding audio chunk: ${audioBytes.length} bytes`);
+          console.log(`[NanaBot] Forwarding audio chunk: ${audioBytes.length} bytes`);
           sendBinary(clientSocket, audioBytes);
         }
       }
     } else if (serverContent.modelTurn) {
-      console.log('[RamseyBot] modelTurn received but no inlineData parts:', JSON.stringify(serverContent.modelTurn).slice(0, 200));
+      console.log('[NanaBot] modelTurn received but no inlineData parts:', JSON.stringify(serverContent.modelTurn).slice(0, 200));
     }
 
     // Handle turn completion
@@ -287,26 +287,26 @@ export const setupCookingLiveServer = (): WebSocketServer => {
             cookingSession.currentStepIndex,
             {
               onReady: () => {
-                console.log('[RamseyBot] Gemini session ready');
+                console.log('[NanaBot] Gemini session ready');
                 sendJson(socket, { type: 'live:ready' });
               },
               onMessage: (geminiMessage) => {
                 const keys = Object.keys(geminiMessage).filter(k => (geminiMessage as Record<string, unknown>)[k] != null);
-                console.log('[RamseyBot] Gemini message keys:', keys.join(', '));
+                console.log('[NanaBot] Gemini message keys:', keys.join(', '));
                 const entry = activeSessions.get(cookingSessionId);
                 if (entry) {
                   handleGeminiMessage(entry, geminiMessage);
                 }
               },
               onError: (error) => {
-                console.error('[RamseyBot] Gemini error:', error?.message || error);
+                console.error('[NanaBot] Gemini error:', error?.message || error);
                 sendJson(socket, {
                   type: 'live:error',
                   error: error?.message || 'Gemini Live API error',
                 });
               },
               onClose: () => {
-                console.log('[RamseyBot] Gemini session closed');
+                console.log('[NanaBot] Gemini session closed');
                 activeSessions.delete(cookingSessionId);
               },
             }
@@ -373,6 +373,48 @@ export const setupCookingLiveServer = (): WebSocketServer => {
         return;
       }
 
+      if (type === 'live:step_changed') {
+        const entry = activeSessions.get(currentCookingSessionId!);
+        if (entry && entry.geminiSession) {
+          const stepIndex = message.stepIndex;
+          if (typeof stepIndex !== 'number') return;
+
+          // Update tracked step index
+          entry.currentStepIndex = stepIndex;
+
+          // Interrupt Gemini's current turn by sending an empty client content
+          // (sending client content while model is speaking triggers interruption)
+          try {
+            (entry.geminiSession as any).sendClientContent({
+              turns: [{
+                role: 'user',
+                parts: [{ text: `[STEP CHANGE] Stop what you are saying immediately. The user has moved to Step ${stepIndex + 1}: ${entry.recipe.instructions[stepIndex]}. Please read this new step aloud and guide them.` }],
+              }],
+              turnComplete: true,
+            });
+          } catch (_error) {
+            // Ignore if session is closed
+          }
+
+          // Tell client to flush audio buffer
+          sendJson(socket, { type: 'live:interrupted' });
+
+          // Generate illustration for the new step
+          const stepText = entry.recipe.instructions[stepIndex];
+          if (stepText) {
+            void requestStepIllustration({
+              socket,
+              cookingSessionId: currentCookingSessionId!,
+              stepIndex,
+              stepText,
+              recipe: entry.recipe,
+              getEntry: () => activeSessions.get(currentCookingSessionId!),
+            });
+          }
+        }
+        return;
+      }
+
       if (type === 'live:stop') {
         if (currentCookingSessionId) {
           cleanupSession(currentCookingSessionId);
@@ -398,43 +440,6 @@ export const setupCookingLiveServer = (): WebSocketServer => {
   });
 
   return wss;
-};
-
-export const notifyStepChange = (cookingSessionId: string, stepIndex: number, stepText: string): void => {
-  const entry = activeSessions.get(cookingSessionId);
-  if (entry && entry.geminiSession) {
-    // Update the tracked step index
-    entry.currentStepIndex = stepIndex;
-
-    // Tell Gemini to read the new step
-    try {
-      (entry.geminiSession as any).sendClientContent({
-        turns: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text: `The user has moved to Step ${stepIndex + 1}: ${stepText}. Please read this step aloud and guide them.`,
-              },
-            ],
-          },
-        ],
-        turnComplete: true,
-      });
-    } catch (_error) {
-      // Ignore if session is closed
-    }
-
-    // Generate illustration for the new step (async, non-blocking)
-    void requestStepIllustration({
-      socket: entry.clientSocket,
-      cookingSessionId,
-      stepIndex,
-      stepText,
-      recipe: entry.recipe,
-      getEntry: () => activeSessions.get(cookingSessionId),
-    });
-  }
 };
 
 export const __testing = {

@@ -175,7 +175,7 @@ Include links/screenshots to:
 - `.github/workflows/deploy-backend.yml`
 - `server/Dockerfile`
 - `scripts/gcp/deploy-cloud-run.sh`
-- `server/services/agent/ramseyBotService.ts` and `server/services/vision/*` showing Google AI service usage
+- `server/services/agent/nanabotService.ts` and `server/services/vision/*` showing Google AI service usage
 
 ## 7) Security notes
 

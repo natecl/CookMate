@@ -5,7 +5,7 @@ import type { IllustrationResult } from '../../../types/illustration';
 
 const IMAGE_MODEL = 'gemini-2.5-flash-image';
 const STYLE_PREFIX =
-  'Flat cartoon-style cooking illustration, clean vector art, instructional cookbook style, simple white background, no text labels:';
+  'A warm, inviting cooking illustration in a clean editorial vector style with soft gradients and natural shadows. Use a warm earthy color palette of browns, greens, creams, terracotta, and gold. The composition should feel like a premium cookbook illustration — instructional, clear, and beautifully composed. No text, no labels, no watermarks. Scene:';
 
 const FRAME_COUNT = 3;
 const GIF_DELAY = 900;
@@ -405,10 +405,11 @@ export async function generateStepIllustration(stepText: string, cacheKey?: stri
 
   if (motion) {
     console.log('[IllustrationService] Motion step detected, generating', FRAME_COUNT, 'frames');
+    const sceneContext = `"${stepText}". Warm editorial vector style with soft gradients, earthy color palette (browns, greens, creams, terracotta, gold), natural shadows, consistent isometric camera angle. No text or labels.`;
     const prompts = [
-      `Frame 1 of ${FRAME_COUNT}: The very beginning - "${stepText}". Show ingredients/tools ready, before action starts.`,
-      `Frame 2 of ${FRAME_COUNT}: Midway through - "${stepText}". The technique is in progress.`,
-      `Frame 3 of ${FRAME_COUNT}: Nearly complete - "${stepText}". Show the result taking shape.`,
+      `Frame 1 of ${FRAME_COUNT}: The very beginning — ${sceneContext} Show ingredients and tools positioned ready on the surface, before the action starts. This establishes the scene composition that must stay identical across all frames.`,
+      `Frame 2 of ${FRAME_COUNT}: Midway through — ${sceneContext} The technique is actively in progress. Maintain the identical background, lighting, and camera angle from frame 1. Only the action element changes position.`,
+      `Frame 3 of ${FRAME_COUNT}: Nearly complete — ${sceneContext} The result is taking shape. Maintain the identical background, lighting, and camera angle from previous frames. Only the action element shows the final state.`,
     ];
 
     const frames = await Promise.all(prompts.map((prompt) => generateSingleImage(prompt)));

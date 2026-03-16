@@ -1,144 +1,103 @@
-import {
-  InMemorySessionService,
-  LlmAgent,
-  Runner,
-  isFinalResponse,
-  stringifyContent
-} from '@google/adk';
+import { GoogleGenAI, Modality } from '@google/genai';
 import type { Recipe } from '../../../types/recipe';
+import type { LiveSessionCallbacks } from '../../../types/websocket';
 
-const BOOTSTRAP_APP_NAME = 'CookMate';
-const RUNNER_APP_NAME = 'Cookmate';
-const USER_ID = 'user_1';
-const SESSION_ID = 'recipe_session_1';
+const MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 
-let runtimePromise: Promise<{ runner: Runner }> | undefined;
+function buildSystemInstruction(recipe: Recipe, currentStepIndex: number): string {
+  const ingredientsList = recipe.ingredients
+    .map((ing, i) => `${i + 1}. ${ing}`)
+    .join('\n');
 
-const createRuntime = async (): Promise<{ runner: Runner }> => {
-  const sessionService = new InMemorySessionService();
+  const instructionsList = recipe.instructions
+    .map((step, i) => `Step ${i + 1}: ${step}`)
+    .join('\n');
 
-  const nanabot = new LlmAgent({
-    name: 'nanabot',
-    model: 'gemini-2.5-flash-lite',
-    instruction: [
-      'You are a recipe assistant.',
-      'Return JSON only with exactly these keys: recipe_name, ingredients, instructions.',
-      'recipe_name must be a string.',
-      'ingredients must be an array of strings.',
-      'instructions must be an array of strings.'
-    ].join(' ')
+  return `You are NanaBot, a warm and knowledgeable cooking guide. You are helping the user cook the following recipe:
+
+Recipe: ${recipe.recipe_name}
+
+Ingredients:
+${ingredientsList}
+
+Instructions:
+${instructionsList}
+
+The user is currently on Step ${currentStepIndex + 1}.
+
+Your role:
+- Read the current step aloud when the user starts or moves to a new step
+- Watch the camera feed to observe the user's cooking progress
+- If you notice something wrong (burning, wrong technique, missed ingredient), gently alert the user
+- Answer any questions about the recipe, techniques, substitutions, or timing
+- If the user wants to alter or pivot from the recipe, help them adapt
+- Keep responses conversational and encouraging
+- When the user completes a step, confirm and guide them to the next one
+- Use clear, concise language — the user's hands are busy cooking
+- If a user asks a question where a visual illustration would help (e.g., "what does julienne mean?", "how thick should I slice this?", "show me how to fold the dough"), use the generate_illustration tool to create a helpful visual. Only use it when a visual truly adds value — not for simple yes/no or timing questions.
+
+Start by greeting the user and reading Step ${currentStepIndex + 1} aloud.`;
+}
+
+export async function createLiveSession(
+  recipe: Recipe,
+  currentStepIndex: number,
+  callbacks: LiveSessionCallbacks
+): Promise<unknown> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY or GOOGLE_GENAI_API_KEY is required');
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const systemInstruction = buildSystemInstruction(recipe, currentStepIndex);
+
+  const session = await ai.live.connect({
+    model: MODEL,
+    config: {
+      responseModalities: [Modality.AUDIO],
+      systemInstruction,
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
+      tools: [
+        {
+          functionDeclarations: [
+            {
+              name: 'generate_illustration',
+              description:
+                'Generate a visual illustration to help explain a cooking concept, technique, or visual detail to the user. Call this when the user asks about something that would benefit from a visual aid, such as a cutting technique, how something should look, or a specific food preparation method.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  description: {
+                    type: 'string',
+                    description:
+                      'A detailed description of what the illustration should show, including the specific technique, ingredient, or visual concept',
+                  },
+                },
+                required: ['description'],
+              },
+            },
+          ],
+        },
+      ],
+    },
+    callbacks: {
+      onopen: () => {
+        if (callbacks.onReady) callbacks.onReady();
+      },
+      onmessage: (message: unknown) => {
+        if (callbacks.onMessage) callbacks.onMessage(message as Parameters<LiveSessionCallbacks['onMessage']>[0]);
+      },
+      onerror: (error: unknown) => {
+        if (callbacks.onError) callbacks.onError(error as Error);
+      },
+      onclose: (event: unknown) => {
+        if (callbacks.onClose) callbacks.onClose(event);
+      },
+    },
   });
 
-  await sessionService.createSession({
-    appName: BOOTSTRAP_APP_NAME,
-    userId: USER_ID,
-    sessionId: SESSION_ID,
-    state: { topic: 'recipes' }
-  });
-
-  await sessionService.getOrCreateSession({
-    appName: RUNNER_APP_NAME,
-    userId: USER_ID,
-    sessionId: SESSION_ID,
-    state: { topic: 'recipes' }
-  });
-
-  const runner = new Runner({
-    agent: nanabot,
-    appName: RUNNER_APP_NAME,
-    sessionService
-  });
-
-  return { runner };
-};
-
-const getRuntime = async (): Promise<{ runner: Runner }> => {
-  if (!runtimePromise) {
-    runtimePromise = createRuntime();
-  }
-  return runtimePromise;
-};
-
-const extractJsonString = (text: string): string => {
-  const trimmed = text.trim();
-
-  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (fencedMatch?.[1]) {
-    return fencedMatch[1].trim();
-  }
-
-  const firstBrace = trimmed.indexOf('{');
-  const lastBrace = trimmed.lastIndexOf('}');
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    return trimmed.slice(firstBrace, lastBrace + 1);
-  }
-
-  return trimmed;
-};
-
-const normalizeRecipeResponse = (responseText: string): Recipe => {
-  const rawJson = extractJsonString(responseText);
-  const parsed = JSON.parse(rawJson);
-
-  const instructionsValue: string[] = Array.isArray(parsed.instructions)
-    ? parsed.instructions
-    : typeof parsed.instructions === 'string'
-      ? parsed.instructions.split(/\n|\. /g)
-      : [];
-
-  if (
-    typeof parsed.recipe_name !== 'string' ||
-    !Array.isArray(parsed.ingredients) ||
-    !Array.isArray(instructionsValue)
-  ) {
-    throw new Error('Agent response is missing required recipe fields');
-  }
-
-  const ingredients = parsed.ingredients.filter((item: unknown) => typeof item === 'string');
-  const instructions = instructionsValue
-    .filter((item: unknown) => typeof item === 'string')
-    .map((item: string) => item.trim())
-    .filter(Boolean);
-
-  if (ingredients.length === 0 || instructions.length === 0) {
-    throw new Error('Agent response includes no valid ingredients');
-  }
-
-  return {
-    recipe_name: parsed.recipe_name.trim(),
-    ingredients,
-    instructions
-  };
-};
-
-export const generateRecipeFromPrompt = async (prompt: string): Promise<Recipe> => {
-  const { runner } = await getRuntime();
-
-  const newMessage = {
-    role: 'user',
-    parts: [
-      {
-        text: `${prompt}\nReturn JSON only with recipe_name, ingredients, instructions.`
-      }
-    ]
-  };
-
-  const events = runner.runAsync({
-    userId: USER_ID,
-    sessionId: SESSION_ID,
-    newMessage
-  });
-
-  let finalResponseText = '';
-  for await (const event of events) {
-    if (isFinalResponse(event)) {
-      finalResponseText = stringifyContent(event).trim();
-    }
-  }
-
-  if (!finalResponseText) {
-    throw new Error('Agent returned no final response text');
-  }
-
-  return normalizeRecipeResponse(finalResponseText);
-};
+  return session;
+}
