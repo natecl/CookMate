@@ -9,7 +9,7 @@ CookMate is a production-grade cooking assistant with a separated client/server 
 - Keep the codebase clean, explicit, and maintainable
 - Clear separation of concerns between frontend and backend
 - No fragile shortcuts, hidden behavior, or overengineering
-- Local dev must stay simple; code must be deployable to production
+- Local dev must stay simple; the app runs on localhost only
 - Prefer explicit, testable code over clever abstractions
 
 ## Tech Stack
@@ -190,10 +190,7 @@ GOOGLE_API_KEY=
 - `2026-03-09`: AGENTS.md must be updated when tasks introduce durable architecture or deployment context.
 - `2026-03-10`: Security hardening applied — helmet, rate-limiting, CORS restrictions, secret scrubbing.
 - `2026-03-14`: Tech stack migrated to TypeScript throughout. Server runs via `tsx`. Shared types at `types/`.
-- `2026-03-16`: Production deployment path uses Google Cloud Run for backend hosting with GitHub Actions auto-deploy (`main`) via Workload Identity Federation (no static service-account keys).
-- `2026-03-16`: Backend production deploy workflow also supports GitHub Actions manual dispatch for redeploys and rollback operations.
-- `2026-03-16`: Frontend production deployment uses Vercel with GitHub Actions auto-deploy on `main` for `client/**` and `types/**`; Vercel project root must remain `client`.
-- `2026-03-16`: Frontend Vercel config relies on `client/vercel.json` SPA rewrites so React Router deep links like `/cooking` can refresh without a 404.
+- `2026-03-16`: Removed production deployment (Cloud Run, Vercel, GitHub Actions). App now runs on localhost only.
 
 ## Definition of Done
 

@@ -9,12 +9,6 @@ const WS_URL = `${WS_BASE_URL}/ws/cooking-live`;
 const VIDEO_INTERVAL_MS = 1000;
 const VIDEO_SIZE = 768;
 
-interface IllustrationState {
-  image: string;
-  format: 'png' | 'gif' | 'jpeg' | 'webp';
-  alt: string;
-}
-
 interface TranscriptEntry {
   role: 'user' | 'model';
   text: string;
@@ -28,10 +22,6 @@ export const useNanaBot = () => {
   const [isPaused, setIsPaused] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [error, setError] = useState('');
-  const [stepIllustration, setStepIllustration] = useState<IllustrationState | null>(null);
-  const [clarifyIllustration, setClarifyIllustration] = useState<IllustrationState | null>(null);
-  const [illustrationLoading, setIllustrationLoading] = useState(false);
-
   const socketRef = useRef<WebSocket | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const captureContextRef = useRef<AudioContext | null>(null);
@@ -338,23 +328,6 @@ export const useNanaBot = () => {
             // The old turn has ended — allow audio from the new turn to play
             pendingInterruptionRef.current = false;
             setIsModelSpeaking(false);
-          } else if (msg.type === 'live:illustration_loading') {
-            if (msg.context === 'step') {
-              setStepIllustration(null);
-              setIllustrationLoading(true);
-            }
-          } else if (msg.type === 'live:illustration') {
-            if (msg.context === 'step') {
-              setStepIllustration({ image: msg.image, format: msg.format, alt: msg.alt });
-              setIllustrationLoading(false);
-            } else if (msg.context === 'clarify') {
-              setClarifyIllustration({ image: msg.image, format: msg.format, alt: msg.alt });
-            }
-          } else if (msg.type === 'live:illustration_error') {
-            if (msg.context === 'step') {
-              setStepIllustration(null);
-              setIllustrationLoading(false);
-            }
           } else if (msg.type === 'live:interrupted') {
             // Server interrupted Gemini's turn — flush queued audio immediately
             flushAudioPlayback();
@@ -392,10 +365,6 @@ export const useNanaBot = () => {
     setIsPaused((prev) => !prev);
   }, []);
 
-  const dismissClarifyIllustration = useCallback(() => {
-    setClarifyIllustration(null);
-  }, []);
-
   const notifyStepChange = useCallback((stepIndex: number) => {
     if (socketRef.current?.readyState === 1) {
       // Flush local audio immediately so the user hears silence right away
@@ -426,14 +395,10 @@ export const useNanaBot = () => {
     isPaused,
     audioBlocked,
     error,
-    stepIllustration,
-    clarifyIllustration,
-    illustrationLoading,
     startVoiceSession,
     stopVoiceSession,
     togglePause,
     unlockAudio,
     notifyStepChange,
-    dismissClarifyIllustration,
   };
 };

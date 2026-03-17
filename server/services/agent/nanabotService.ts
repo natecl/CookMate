@@ -34,8 +34,6 @@ Your role:
 - Keep responses conversational and encouraging
 - When the user completes a step, confirm and guide them to the next one
 - Use clear, concise language — the user's hands are busy cooking
-- If a user asks a question where a visual illustration would help (e.g., "what does julienne mean?", "how thick should I slice this?", "show me how to fold the dough"), use the generate_illustration tool to create a helpful visual. Only use it when a visual truly adds value — not for simple yes/no or timing questions.
-
 Start by greeting the user and reading Step ${currentStepIndex + 1} aloud.`;
 }
 
@@ -60,28 +58,6 @@ export async function createLiveSession(
       systemInstruction,
       inputAudioTranscription: {},
       outputAudioTranscription: {},
-      tools: [
-        {
-          functionDeclarations: [
-            {
-              name: 'generate_illustration',
-              description:
-                'Generate a visual illustration to help explain a cooking concept, technique, or visual detail to the user. Call this when the user asks about something that would benefit from a visual aid, such as a cutting technique, how something should look, or a specific food preparation method.',
-              parameters: {
-                type: 'object',
-                properties: {
-                  description: {
-                    type: 'string',
-                    description:
-                      'A detailed description of what the illustration should show, including the specific technique, ingredient, or visual concept',
-                  },
-                },
-                required: ['description'],
-              },
-            },
-          ],
-        },
-      ],
     },
     callbacks: {
       onopen: () => {

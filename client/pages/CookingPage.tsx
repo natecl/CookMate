@@ -77,15 +77,11 @@ const CookingPage = () => {
     isPaused,
     audioBlocked,
     error: nanaError,
-    stepIllustration,
-    clarifyIllustration,
-    illustrationLoading,
     startVoiceSession,
     stopVoiceSession,
     togglePause,
     unlockAudio,
     notifyStepChange: notifyBotStepChange,
-    dismissClarifyIllustration,
   } = useNanaBot();
 
   useEffect(() => {
@@ -228,22 +224,6 @@ const CookingPage = () => {
           </div>
         )}
 
-        {clarifyIllustration && (
-          <div
-            className="clarify-overlay"
-            onClick={dismissClarifyIllustration}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => e.key === 'Enter' && dismissClarifyIllustration()}
-          >
-            <img
-              src={`data:image/${clarifyIllustration.format};base64,${clarifyIllustration.image}`}
-              alt={clarifyIllustration.alt}
-              className="clarify-overlay-image"
-            />
-            <span className="clarify-overlay-dismiss">Tap to dismiss</span>
-          </div>
-        )}
       </div>
 
       <div className="step-progress">
@@ -261,23 +241,6 @@ const CookingPage = () => {
         </p>
 
         <div className="step-main-row">
-          {(stepIllustration || illustrationLoading) && (
-            <div className="instruction-illustration">
-              {illustrationLoading && !stepIllustration ? (
-                <div className="illustration-loading">
-                  <span className="illustration-spinner" />
-                  <span>Generating illustration...</span>
-                </div>
-              ) : stepIllustration ? (
-                <img
-                  src={`data:image/${stepIllustration.format};base64,${stepIllustration.image}`}
-                  alt={stepIllustration.alt}
-                  className="illustration-image"
-                />
-              ) : null}
-            </div>
-          )}
-
           <div className="step-copy">
             <p className="step-text">{currentStepText}</p>
           </div>

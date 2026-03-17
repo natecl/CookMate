@@ -497,84 +497,6 @@ ul {
   color: #fffdf9;
 }
 
-.instruction-illustration {
-  width: 124px;
-  min-height: 92px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.08);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  flex-shrink: 0;
-  overflow: hidden;
-  padding: 4px;
-}
-
-.illustration-image {
-  max-height: 100%;
-  max-width: 100%;
-  object-fit: contain;
-  border-radius: 8px;
-}
-
-.illustration-loading {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: rgba(255, 253, 249, 0.7);
-  font-size: 0.65rem;
-}
-
-.illustration-spinner {
-  width: 12px;
-  height: 12px;
-  border: 2px solid rgba(255, 253, 249, 0.2);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-/* Clarifying Illustration Overlay */
-.clarify-overlay {
-  position: absolute;
-  bottom: 16px;
-  right: 16px;
-  max-width: 180px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
-  z-index: 10;
-  animation: fadeSlideIn 0.3s ease-out;
-  text-align: center;
-}
-
-.clarify-overlay-image {
-  width: 100%;
-  border-radius: 8px;
-}
-
-.clarify-overlay-dismiss {
-  display: block;
-  font-size: 0.65rem;
-  color: var(--muted);
-  margin-top: 4px;
-}
-
-@keyframes fadeSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 @media (max-width: 680px) {
   .mode-selector {
     flex-direction: column;
@@ -588,18 +510,8 @@ ul {
   .step-copy {
     flex: 0 1 54vw;
   }
-  .instruction-illustration {
-    width: 104px;
-    min-height: 78px;
-    padding: 4px;
-  }
   .step-text {
     font-size: 0.92rem;
     line-height: 1.24;
-  }
-  .clarify-overlay {
-    max-width: 140px;
-    bottom: 12px;
-    right: 12px;
   }
 }

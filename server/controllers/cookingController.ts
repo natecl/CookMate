@@ -37,12 +37,6 @@ export const postSessionEvent = (req: Request, res: Response): void => {
 
     const updatedSession = sendEvent(sessionId, event);
 
-    // Step change notification is handled by the client via the
-    // live:step_changed WebSocket message sent before the HTTP request.
-    // Triggering it here as well caused a duplicate requestStepIllustration
-    // whose live:illustration_loading message could race and clear the
-    // illustration that the first request had just delivered.
-
     res.status(200).json(updatedSession);
   } catch (error) {
     if (error instanceof CookingSessionError) {

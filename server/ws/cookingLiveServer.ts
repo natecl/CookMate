@@ -1,12 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { createLiveSession } from '../services/agent/nanabotService';
 import { getSession } from '../services/cookingSessionService';
-import {
-  generateStepIllustration,
-  generateClarifyIllustration,
-} from '../services/vision/illustrationService';
-import type { Recipe } from '../../types/recipe';
-import type { IllustrationResult } from '../../types/illustration';
 import type {
   CookingLiveClientMessage,
   CookingLiveServerMessage,
@@ -40,8 +34,6 @@ const checkRateLimit = (limiter: RateLimiter, isBinary: boolean): boolean => {
 
 // Map cookingSessionId -> { geminiSession, clientSocket, currentStepIndex, recipe }
 const activeSessions = new Map<string, ActiveCookingSession>();
-const STEP_ILLUSTRATION_ERROR = 'Failed to generate illustration';
-
 
 const sendJson = (socket: WebSocket, payload: CookingLiveServerMessage): void => {
   if (socket.readyState === WebSocket.OPEN) {
@@ -55,132 +47,9 @@ const sendBinary = (socket: WebSocket, data: Buffer): void => {
   }
 };
 
-interface StepIllustrationRequest {
-  socket: WebSocket;
-  cookingSessionId: string;
-  stepIndex: number;
-  stepText: string;
-  recipe: Recipe;
-  getEntry: () => ActiveCookingSession | undefined;
-  generateIllustration?: typeof generateStepIllustration;
-}
-
-const emitStepIllustrationPayload = (
-  socket: WebSocket,
-  stepText: string,
-  result: IllustrationResult
-): void => {
-  sendJson(socket, {
-    type: 'live:illustration',
-    context: 'step',
-    image: result.data,
-    format: result.format,
-    alt: stepText,
-  });
-};
-
-const emitStepIllustrationError = (socket: WebSocket): void => {
-  sendJson(socket, {
-    type: 'live:illustration_error',
-    context: 'step',
-    error: STEP_ILLUSTRATION_ERROR,
-  });
-};
-
-const requestStepIllustration = async ({
-  socket,
-  stepIndex,
-  stepText,
-  getEntry,
-  generateIllustration = generateStepIllustration,
-}: StepIllustrationRequest): Promise<void> => {
-  sendJson(socket, { type: 'live:illustration_loading', context: 'step' });
-
-  let result: IllustrationResult | null = null;
-  try {
-    result = await generateIllustration(stepText);
-  } catch (err) {
-    console.error('[NanaBot] Step illustration error:', (err as Error).message);
-  }
-
-  const entry = getEntry();
-  if (!entry || entry.currentStepIndex !== stepIndex) {
-    return;
-  }
-
-  if (result) {
-    emitStepIllustrationPayload(socket, stepText, result);
-  } else {
-    emitStepIllustrationError(socket);
-  }
-};
-
-const handleToolCall = async (entry: ActiveCookingSession, message: GeminiLiveMessage): Promise<void> => {
-  const toolCall = message.toolCall;
-  if (!toolCall?.functionCalls) return;
-
-  for (const call of toolCall.functionCalls) {
-    if (call.name === 'generate_illustration') {
-      const description = call.args?.description as string | undefined;
-      if (!description) continue;
-
-      console.log('[NanaBot] Tool call: generate_illustration -', description);
-      sendJson(entry.clientSocket, { type: 'live:illustration_loading', context: 'clarify' });
-
-      try {
-        const result = await generateClarifyIllustration(description);
-        if (result) {
-          sendJson(entry.clientSocket, {
-            type: 'live:illustration',
-            context: 'clarify',
-            image: result.data,
-            format: result.format,
-            alt: description,
-          });
-        } else {
-          sendJson(entry.clientSocket, {
-            type: 'live:illustration_error',
-            context: 'clarify',
-            error: 'Failed to generate illustration',
-          });
-        }
-      } catch (err) {
-        console.error('[NanaBot] Clarify illustration error:', (err as Error).message);
-        sendJson(entry.clientSocket, {
-          type: 'live:illustration_error',
-          context: 'clarify',
-          error: 'Failed to generate illustration',
-        });
-      }
-
-      // Send tool response back to Gemini so it can continue
-      try {
-        (entry.geminiSession as any).sendToolResponse({
-          functionResponses: [
-            {
-              id: call.id,
-              name: call.name,
-              response: { success: true, message: 'Illustration generated and shown to the user.' },
-            },
-          ],
-        });
-      } catch (_err) {
-        // Ignore if session closed
-      }
-    }
-  }
-};
-
 const handleGeminiMessage = (entry: ActiveCookingSession, message: GeminiLiveMessage): void => {
   const clientSocket = entry.clientSocket;
   const serverContent = message.serverContent;
-
-  // Handle tool calls from the model
-  if (message.toolCall) {
-    handleToolCall(entry, message).catch((err) => {
-      console.error('[NanaBot] Unhandled tool call error:', (err as Error).message);
-    });
-  }
 
   if (serverContent) {
     // Handle transcription events
@@ -348,19 +217,6 @@ export const setupCookingLiveServer = (): WebSocketServer => {
             // Ignore if session not ready
           }
 
-          // Generate illustration for the initial step
-          const initialStepText =
-            cookingSession.recipe.instructions[cookingSession.currentStepIndex];
-          if (initialStepText) {
-            void requestStepIllustration({
-              socket,
-              cookingSessionId,
-              stepIndex: cookingSession.currentStepIndex,
-              stepText: initialStepText,
-              recipe: cookingSession.recipe,
-              getEntry: () => activeSessions.get(cookingSessionId),
-            });
-          }
         } catch (error) {
           sendJson(socket, {
             type: 'live:error',
@@ -415,18 +271,6 @@ export const setupCookingLiveServer = (): WebSocketServer => {
           // Tell client to flush audio buffer
           sendJson(socket, { type: 'live:interrupted' });
 
-          // Generate illustration for the new step
-          const stepText = entry.recipe.instructions[stepIndex];
-          if (stepText) {
-            void requestStepIllustration({
-              socket,
-              cookingSessionId: currentCookingSessionId!,
-              stepIndex,
-              stepText,
-              recipe: entry.recipe,
-              getEntry: () => activeSessions.get(currentCookingSessionId!),
-            });
-          }
         }
         return;
       }
@@ -456,8 +300,4 @@ export const setupCookingLiveServer = (): WebSocketServer => {
   });
 
   return wss;
-};
-
-export const __testing = {
-  requestStepIllustration,
 };
