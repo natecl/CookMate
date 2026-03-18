@@ -1,7 +1,10 @@
 import crypto from 'crypto';
-import { CookingSessionError } from '../../types/errors';
-import type { SessionStatus, SessionEventType, CookingSession } from '../../types/session';
-import type { Recipe } from '../../types/recipe';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { CookingSessionError } from '../../types/errors.js';
+import type { SessionStatus, SessionEventType, CookingSession } from '../../types/session.js';
+import type { Recipe } from '../../types/recipe.js';
+import { saveRecipe } from './recipeStorageService.js';
+import { logMeal } from './mealLogService.js';
 
 interface SessionEvent {
   type: string;
@@ -9,20 +12,6 @@ interface SessionEvent {
 }
 
 type TransitionResult = CookingSession | { error: string };
-
-const MAX_SESSIONS = 100;
-const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-const sessions = new Map<string, CookingSession>();
-
-const pruneExpiredSessions = (): void => {
-  const now = Date.now();
-  for (const [id, session] of sessions.entries()) {
-    if (now - new Date(session.createdAt).getTime() > SESSION_TTL_MS) {
-      sessions.delete(id);
-    }
-  }
-};
 
 const VALID_TRANSITIONS: Record<SessionStatus, SessionEventType[]> = {
   idle: ['START_COOKING'],
@@ -115,7 +104,7 @@ const transition = (session: CookingSession, event: SessionEvent): TransitionRes
   }
 };
 
-export const createSession = (recipe: Recipe): CookingSession => {
+const validateRecipe = (recipe: Recipe): void => {
   if (!recipe || typeof recipe !== 'object') {
     throw new CookingSessionError('Recipe is required', 400);
   }
@@ -128,40 +117,96 @@ export const createSession = (recipe: Recipe): CookingSession => {
   if (!Array.isArray(recipe.instructions) || recipe.instructions.length === 0) {
     throw new CookingSessionError('instructions must be a non-empty array', 400);
   }
+};
 
-  pruneExpiredSessions();
-  if (sessions.size >= MAX_SESSIONS) {
-    throw new CookingSessionError('Too many active sessions', 429);
-  }
+export const createSession = async (
+  recipe: Recipe,
+  userId: string,
+  supabase: SupabaseClient
+): Promise<CookingSession> => {
+  validateRecipe(recipe);
+
+  const storedRecipe = await saveRecipe(recipe, userId, null, supabase);
 
   const now = new Date().toISOString();
   const sessionId = `cook_${crypto.randomUUID()}`;
-  const session: CookingSession = {
-    sessionId,
-    recipe,
-    currentStepIndex: 0,
-    stepCompletion: recipe.instructions.map(() => false),
-    status: 'idle',
-    createdAt: now,
-    updatedAt: now
-  };
+  const stepCompletion = recipe.instructions.map(() => false);
 
-  sessions.set(sessionId, session);
-  return session;
-};
+  const { data, error } = await supabase
+    .from('cooking_sessions')
+    .insert({
+      id: sessionId,
+      user_id: userId,
+      recipe_id: storedRecipe.id,
+      current_step_index: 0,
+      step_completion: stepCompletion,
+      status: 'idle',
+    })
+    .select()
+    .single();
 
-export const getSession = (sessionId: string): CookingSession | null => {
-  return sessions.get(sessionId) || null;
-};
-
-export const sendEvent = (sessionId: string, event: SessionEvent): CookingSession => {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new CookingSessionError('Cooking session not found', 404);
+  if (error) {
+    throw new CookingSessionError(`Failed to create session: ${error.message}`, 500);
   }
 
+  return {
+    sessionId: data.id,
+    recipeId: storedRecipe.id,
+    recipe,
+    currentStepIndex: data.current_step_index,
+    stepCompletion: data.step_completion,
+    status: data.status as SessionStatus,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  };
+};
+
+export const getSession = async (
+  sessionId: string,
+  supabase: SupabaseClient
+): Promise<CookingSession | null> => {
+  const { data, error } = await supabase
+    .from('cooking_sessions')
+    .select('*, recipes(*)')
+    .eq('id', sessionId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw new CookingSessionError(`Failed to fetch session: ${error.message}`, 500);
+  }
+
+  const recipeRow = data.recipes;
+
+  return {
+    sessionId: data.id,
+    recipeId: recipeRow.id,
+    recipe: {
+      recipe_name: recipeRow.recipe_name,
+      ingredients: recipeRow.ingredients,
+      instructions: recipeRow.instructions,
+    },
+    currentStepIndex: data.current_step_index,
+    stepCompletion: data.step_completion,
+    status: data.status as SessionStatus,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  };
+};
+
+export const sendEvent = async (
+  sessionId: string,
+  event: SessionEvent,
+  userId: string,
+  supabase: SupabaseClient
+): Promise<CookingSession> => {
   if (!event || typeof event.type !== 'string') {
     throw new CookingSessionError('Event must have a "type" string property', 400);
+  }
+
+  const session = await getSession(sessionId, supabase);
+  if (!session) {
+    throw new CookingSessionError('Cooking session not found', 404);
   }
 
   const result = transition(session, event);
@@ -170,7 +215,29 @@ export const sendEvent = (sessionId: string, event: SessionEvent): CookingSessio
     throw new CookingSessionError(result.error, 400);
   }
 
-  sessions.set(sessionId, result);
+  const { error } = await supabase
+    .from('cooking_sessions')
+    .update({
+      current_step_index: result.currentStepIndex,
+      step_completion: result.stepCompletion,
+      status: result.status,
+      updated_at: result.updatedAt,
+    })
+    .eq('id', sessionId);
+
+  if (error) {
+    throw new CookingSessionError(`Failed to update session: ${error.message}`, 500);
+  }
+
+  // Auto-log meal when session is finished
+  if (result.status === 'completed' && result.recipeId) {
+    try {
+      await logMeal(userId, result.recipeId, sessionId, supabase);
+    } catch (err) {
+      console.error('[CookingSession] Failed to auto-log meal:', err);
+    }
+  }
+
   return result;
 };
 

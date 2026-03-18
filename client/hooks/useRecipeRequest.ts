@@ -34,12 +34,17 @@ const buildRequestBody = ({ mode, inputValue, inputMethod, ingredientsList }: Re
   };
 };
 
-export const requestRecipe = async ({ mode, inputValue, inputMethod, ingredientsList }: RequestRecipeParams): Promise<Recipe> => {
+export const requestRecipe = async ({ mode, inputValue, inputMethod, ingredientsList }: RequestRecipeParams, accessToken?: string): Promise<Recipe> => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  };
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+
   const response = await fetch(RECIPE_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers,
     body: JSON.stringify(buildRequestBody({ mode, inputValue, inputMethod, ingredientsList }))
   });
 

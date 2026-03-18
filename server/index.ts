@@ -14,10 +14,13 @@ for (const envPath of envPaths) {
   dotenv.config({ path: envPath, override: false });
 }
 
-import healthRoutes from './routes/healthRoutes';
-import cookingRoutes from './routes/cookingRoutes';
-import { setupScanWebSocketServer } from './ws/scanServer';
-import { setupCookingLiveServer } from './ws/cookingLiveServer';
+import healthRoutes from './routes/healthRoutes.js';
+import cookingRoutes from './routes/cookingRoutes.js';
+import userRoutes from './routes/userRoutes.js';
+import recipeRoutes from './routes/recipeRoutes.js';
+import mealLogRoutes from './routes/mealLogRoutes.js';
+import { setupScanWebSocketServer } from './ws/scanServer.js';
+import { setupCookingLiveServer } from './ws/cookingLiveServer.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
@@ -65,6 +68,9 @@ app.use((req, _res, next) => {
 });
 app.use('/api', healthRoutes);
 app.use('/api', cookingRoutes);
+app.use('/api', userRoutes);
+app.use('/api', recipeRoutes);
+app.use('/api', mealLogRoutes);
 
 // Use noServer mode for WebSocket servers to avoid upgrade conflicts
 const scanWss = setupScanWebSocketServer();

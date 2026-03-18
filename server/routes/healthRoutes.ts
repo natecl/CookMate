@@ -1,7 +1,8 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import { getHealth, postRecipe } from '../controllers/healthController';
-import { postVisionIngredients } from '../controllers/visionController';
+import { getHealth, postRecipe } from '../controllers/healthController.js';
+import { postVisionIngredients } from '../controllers/visionController.js';
+import { optionalAuth } from '../middleware/authMiddleware.js';
 
 const aiRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -14,7 +15,7 @@ const aiRateLimit = rateLimit({
 const router = express.Router();
 
 router.get('/health', getHealth);
-router.post('/recipe', aiRateLimit, postRecipe);
+router.post('/recipe', optionalAuth, aiRateLimit, postRecipe);
 router.post('/vision/ingredients', postVisionIngredients);
 
 export default router;

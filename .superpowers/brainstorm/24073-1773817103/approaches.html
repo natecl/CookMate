@@ -1,0 +1,54 @@
+<h2>Past Recipes Page — Two Approaches</h2>
+<p class="subtitle">How should we build the completion flow + past recipes feature?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>New Standalone Page — <code>/past-recipes</code></h3>
+      <p>Create a brand new <strong>PastRecipesPage</strong> component at a new route. After finishing cooking, navigate to <code>/past-recipes</code> with a "justFinished" flag + the recipe name in route state. The page shows a congrats banner at the top when coming from cooking, then lists all past recipes below. MainPage gets a "View Past Recipes" button that navigates to the same route (without congrats).</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Clean separation — one page, one purpose</li>
+            <li>Reusable from both CookingPage and MainPage</li>
+            <li>Simple routing — just add one route</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Similar to existing RecipeLibraryPage (some overlap)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Extend RecipeLibraryPage with Completion Mode</h3>
+      <p>Reuse the existing <code>/recipes</code> RecipeLibraryPage. Add a "justFinished" state flag — when present, show a congrats banner at the top and the "Back to Home" button at the bottom. When accessed normally (from MainPage button), show it without the congrats. Rename the page title to "Past Recipes".</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>No new files — extends existing page</li>
+            <li>No duplicate recipe-listing logic</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Mixes two concerns in one component (completion flow + library)</li>
+            <li>RecipeLibraryPage has delete functionality — may not want that in the completion flow</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top: 1.5rem; opacity: 0.7;">I recommend <strong>Option A</strong> — a clean new page keeps the completion flow focused and avoids mixing delete buttons into the "congrats" experience.</p>

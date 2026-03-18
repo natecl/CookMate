@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { CookingSession, SessionEvent } from '../../types/session';
 import type { Recipe } from '../../types/recipe';
+import { useAuth } from '../context/AuthContext';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '')
   || 'http://localhost:5000';
@@ -10,6 +11,15 @@ export const useCookingSession = () => {
   const [session, setSession] = useState<CookingSession | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const { session: authSession } = useAuth();
+
+  const getHeaders = useCallback((): Record<string, string> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (authSession?.access_token) {
+      headers['Authorization'] = `Bearer ${authSession.access_token}`;
+    }
+    return headers;
+  }, [authSession?.access_token]);
 
   const createSession = useCallback(async (recipe: Recipe): Promise<CookingSession | null> => {
     setLoading(true);
@@ -17,7 +27,7 @@ export const useCookingSession = () => {
     try {
       const res = await fetch(`${API_BASE}/sessions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify({ recipe })
       });
       const data = await res.json();
@@ -30,13 +40,15 @@ export const useCookingSession = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [getHeaders]);
 
   const loadSession = useCallback(async (sessionId: string): Promise<CookingSession | null> => {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${API_BASE}/sessions/${sessionId}`);
+      const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+        headers: getHeaders(),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Session not found');
       setSession(data);
@@ -47,7 +59,7 @@ export const useCookingSession = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [getHeaders]);
 
   const sendEvent = useCallback(async (eventPayload: SessionEvent, sessionIdOverride?: string): Promise<CookingSession | null> => {
     const id = sessionIdOverride || session?.sessionId;
@@ -56,7 +68,7 @@ export const useCookingSession = () => {
     try {
       const res = await fetch(`${API_BASE}/sessions/${id}/events`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify(eventPayload)
       });
       const data = await res.json();
@@ -67,7 +79,7 @@ export const useCookingSession = () => {
       setError((err as Error).message);
       return null;
     }
-  }, [session?.sessionId]);
+  }, [session?.sessionId, getHeaders]);
 
   const startCooking = useCallback((sessionId?: string) => sendEvent({ type: 'START_COOKING' }, sessionId), [sendEvent]);
   const nextStep = useCallback(() => sendEvent({ type: 'NEXT_STEP' }), [sendEvent]);

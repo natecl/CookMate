@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { createLiveSession } from '../services/agent/nanabotService';
 import { getSession } from '../services/cookingSessionService';
+import { supabaseAdmin } from '../services/supabaseClient.js';
 import type {
   CookingLiveClientMessage,
   CookingLiveServerMessage,
@@ -153,7 +154,42 @@ export const setupCookingLiveServer = (): WebSocketServer => {
           return;
         }
 
-        const cookingSession = getSession(cookingSessionId);
+        // Optional auth verification: if a token is provided, verify session ownership
+        const token = (message as Record<string, unknown>).token as string | undefined;
+        if (token) {
+          try {
+            const { data: userData, error: authError } = await supabaseAdmin.auth.getUser(token);
+            if (authError || !userData?.user) {
+              sendJson(socket, { type: 'live:error', error: 'Invalid authentication token' });
+              socket.close();
+              return;
+            }
+
+            const { data: sessionRow, error: dbError } = await supabaseAdmin
+              .from('cooking_sessions')
+              .select('user_id')
+              .eq('id', cookingSessionId)
+              .single();
+
+            if (dbError || !sessionRow) {
+              sendJson(socket, { type: 'live:error', error: 'Cooking session not found in database' });
+              socket.close();
+              return;
+            }
+
+            if (sessionRow.user_id !== userData.user.id) {
+              sendJson(socket, { type: 'live:error', error: 'You do not own this cooking session' });
+              socket.close();
+              return;
+            }
+          } catch (_error) {
+            sendJson(socket, { type: 'live:error', error: 'Auth verification failed' });
+            socket.close();
+            return;
+          }
+        }
+
+        const cookingSession = await getSession(cookingSessionId, supabaseAdmin);
         if (!cookingSession) {
           sendJson(socket, { type: 'live:error', error: 'Cooking session not found' });
           return;

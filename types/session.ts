@@ -20,6 +20,7 @@ export interface SessionEvent {
 
 export interface CookingSession {
   sessionId: string;
+  recipeId?: string;
   recipe: Recipe;
   currentStepIndex: number;
   stepCompletion: boolean[];

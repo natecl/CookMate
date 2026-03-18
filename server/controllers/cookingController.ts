@@ -4,12 +4,12 @@ import {
   getSession,
   sendEvent,
   CookingSessionError
-} from '../services/cookingSessionService';
+} from '../services/cookingSessionService.js';
 
-export const postCreateSession = (req: Request, res: Response): void => {
+export const postCreateSession = async (req: Request, res: Response): Promise<void> => {
   try {
     const { recipe } = req.body || {};
-    const session = createSession(recipe);
+    const session = await createSession(recipe, req.user!.id, req.supabase!);
     res.status(201).json(session);
   } catch (error) {
     if (error instanceof CookingSessionError) {
@@ -20,22 +20,30 @@ export const postCreateSession = (req: Request, res: Response): void => {
   }
 };
 
-export const getSessionById = (req: Request, res: Response): void => {
-  const { sessionId } = req.params;
-  const session = getSession(sessionId);
-  if (!session) {
-    res.status(404).json({ error: 'Cooking session not found' });
-    return;
+export const getSessionById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sessionId = req.params.sessionId as string;
+    const session = await getSession(sessionId, req.supabase!);
+    if (!session) {
+      res.status(404).json({ error: 'Cooking session not found' });
+      return;
+    }
+    res.status(200).json(session);
+  } catch (error) {
+    if (error instanceof CookingSessionError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to fetch cooking session' });
   }
-  res.status(200).json(session);
 };
 
-export const postSessionEvent = (req: Request, res: Response): void => {
+export const postSessionEvent = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { sessionId } = req.params;
+    const sessionId = req.params.sessionId as string;
     const event = req.body;
 
-    const updatedSession = sendEvent(sessionId, event);
+    const updatedSession = await sendEvent(sessionId, event, req.user!.id, req.supabase!);
 
     res.status(200).json(updatedSession);
   } catch (error) {

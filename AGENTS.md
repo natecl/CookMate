@@ -18,7 +18,7 @@ CookMate is a production-grade cooking assistant with a separated client/server 
 - **Server:** Express + TypeScript via `tsx` (`server/`)
 - **Shared types:** `types/` at project root (`.ts` files)
 - **Module system:** ESM (`import`/`export`) throughout — no CommonJS
-- **State:** In-memory (no database)
+- **State:** Supabase (PostgreSQL) for persistent data; in-memory for ephemeral WebSocket state
 - **WebSocket:** `ws/` under server for real-time cooking sessions
 
 ## Project Structure
@@ -27,12 +27,15 @@ CookMate is a production-grade cooking assistant with a separated client/server 
 cookmate/
 ├── client/
 │   ├── components/    # Reusable UI components
+│   ├── context/       # React context providers (auth)
+│   ├── lib/           # Client library setup (Supabase)
 │   ├── pages/         # Route-level screens
 │   ├── hooks/         # Reusable hooks
 │   ├── styles/        # Global/modular styles
 │   └── public/        # Static assets (audio, images)
 ├── server/
 │   ├── controllers/   # Request/response orchestration
+│   ├── middleware/    # Express middleware (auth)
 │   ├── routes/        # HTTP method + path wiring
 │   ├── services/
 │   │   ├── agent/     # AI agent orchestration
@@ -164,6 +167,11 @@ CLIENT_URL=http://localhost:3000
 API_BASE_URL=http://localhost:5000
 OPENAI_API_KEY=
 GOOGLE_API_KEY=
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
 ```
 - Required vars must be documented in `.env.example`
 - Fail early with clear message if critical vars are missing
@@ -191,6 +199,7 @@ GOOGLE_API_KEY=
 - `2026-03-10`: Security hardening applied — helmet, rate-limiting, CORS restrictions, secret scrubbing.
 - `2026-03-14`: Tech stack migrated to TypeScript throughout. Server runs via `tsx`. Shared types at `types/`.
 - `2026-03-16`: Removed production deployment (Cloud Run, Vercel, GitHub Actions). App now runs on localhost only.
+- `2026-03-17`: Supabase integration — PostgreSQL database, Google OAuth, RLS policies. Tables: profiles, recipes, cooking_sessions, meal_logs, nutrition.
 
 ## Definition of Done
 

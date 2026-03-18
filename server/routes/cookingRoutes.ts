@@ -4,7 +4,8 @@ import {
   postCreateSession,
   getSessionById,
   postSessionEvent
-} from '../controllers/cookingController';
+} from '../controllers/cookingController.js';
+import { requireAuth } from '../middleware/authMiddleware.js';
 
 const aiRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -16,8 +17,8 @@ const aiRateLimit = rateLimit({
 
 const router = express.Router();
 
-router.post('/cooking/sessions', aiRateLimit, postCreateSession);
-router.get('/cooking/sessions/:sessionId', getSessionById);
-router.post('/cooking/sessions/:sessionId/events', postSessionEvent);
+router.post('/cooking/sessions', requireAuth, aiRateLimit, postCreateSession);
+router.get('/cooking/sessions/:sessionId', requireAuth, getSessionById);
+router.post('/cooking/sessions/:sessionId/events', requireAuth, postSessionEvent);
 
 export default router;
